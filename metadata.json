@@ -1,0 +1,6 @@
+{
+  "name": "InnSphere CRM",
+  "description": "A specialized hotel customer relationship management system focused on the guest lifecycle, preference tracking, automatic engagement triggers, and repeat booking analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
