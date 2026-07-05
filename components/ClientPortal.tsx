@@ -86,6 +86,8 @@ export default function ClientPortal({ user, onSignOut }: ClientPortalProps) {
   const [profileSaving, setProfileSaving] = useState(false);
   const [bookingSubmitting, setBookingSubmitting] = useState(false);
 
+  const [availableRooms, setAvailableRooms] = useState<any[]>([]);
+
   // New Booking form state
   const [roomNumber, setRoomNumber] = useState("101");
   const [checkIn, setCheckIn] = useState(() => format(new Date(), "yyyy-MM-dd"));
@@ -95,6 +97,20 @@ export default function ClientPortal({ user, onSignOut }: ClientPortalProps) {
   const isSandbox = user?.uid?.startsWith("sandbox_") || (typeof window !== "undefined" && localStorage.getItem("innsphere_sandbox_mode") === "true");
 
   // Setup guest profile and listen to personal bookings
+  useEffect(() => {
+    if (!isSandbox) {
+      const q = query(collection(db, "rooms"));
+      const unsub = onSnapshot(q, (snapshot) => {
+        if (!snapshot.empty) {
+          setAvailableRooms(snapshot.docs.map(d => d.data()));
+        } else {
+          setAvailableRooms([]);
+        }
+      });
+      return () => unsub();
+    }
+  }, [isSandbox]);
+
   useEffect(() => {
     if (!user) return;
 
@@ -301,7 +317,8 @@ export default function ClientPortal({ user, onSignOut }: ClientPortalProps) {
 
     try {
       const nights = differenceInDays(parseISO(checkOut), parseISO(checkIn));
-      const rate = ROOM_PRICES[roomNumber] || 150;
+      const dynamicRoom = availableRooms.find(r => r.roomNumber === roomNumber);
+      const rate = dynamicRoom ? dynamicRoom.rate : (ROOM_PRICES[roomNumber] || 150);
       const totalAmount = nights * rate;
 
       if (isSandbox) {
@@ -408,7 +425,8 @@ export default function ClientPortal({ user, onSignOut }: ClientPortalProps) {
   };
 
   // Helper values for totals
-  const pricePerNight = ROOM_PRICES[roomNumber] || 150;
+  const currentDynamicRoom = availableRooms.find(r => r.roomNumber === roomNumber);
+  const pricePerNight = currentDynamicRoom ? currentDynamicRoom.rate : (ROOM_PRICES[roomNumber] || 150);
   const stayNights = checkIn && checkOut && checkOut > checkIn 
     ? differenceInDays(parseISO(checkOut), parseISO(checkIn)) 
     : 0;
@@ -570,22 +588,25 @@ export default function ClientPortal({ user, onSignOut }: ClientPortalProps) {
                   {/* Select Room */}
                   <div className="space-y-2">
                     <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Choose a Room</label>
-                    <div className="grid grid-cols-5 gap-2">
-                      {ROOMS.map((room) => (
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                      {(availableRooms.length > 0 ? availableRooms : ROOMS.map(r => ({ roomNumber: r, rate: ROOM_PRICES[r] }))).map((roomObj) => {
+                        const rNum = typeof roomObj === "string" ? roomObj : roomObj.roomNumber;
+                        const rRate = typeof roomObj === "string" ? ROOM_PRICES[rNum] : roomObj.rate;
+                        return (
                         <button
-                          key={room}
+                          key={rNum}
                           type="button"
-                          onClick={() => setRoomNumber(room)}
+                          onClick={() => setRoomNumber(rNum)}
                           className={`p-3 rounded-xl border font-mono text-xs font-extrabold transition-all text-center flex flex-col items-center gap-1 ${
-                            roomNumber === room 
+                            roomNumber === rNum 
                               ? "bg-indigo-50 border-indigo-500 text-indigo-600 shadow-sm" 
                               : "border-slate-100 text-slate-600 hover:border-slate-200 bg-slate-50/50"
                           }`}
                         >
-                          <span>{room}</span>
-                          <span className="text-[9px] text-slate-400 font-normal font-sans">${ROOM_PRICES[room]}/n</span>
+                          <span>{rNum}</span>
+                          <span className="text-[9px] text-slate-400 font-normal font-sans">${rRate}/n</span>
                         </button>
-                      ))}
+                      )})}
                     </div>
                   </div>
 

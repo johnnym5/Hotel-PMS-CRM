@@ -3,8 +3,9 @@
 import React, { useState, useEffect } from "react";
 import { doc, getDoc, updateDoc, collection, query, where, orderBy, onSnapshot, addDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
 import { db, auth, handleFirestoreError, OperationType } from "../lib/firebase";
-import { User, Mail, Phone, MapPin, Calendar, Edit, Save, Plus, Trash2, X, AlertCircle, ShoppingBag, FileText, CheckCircle2, BedDouble } from "lucide-react";
+import { User, Mail, Phone, MapPin, Calendar, Edit, Save, Plus, Trash2, X, AlertCircle, ShoppingBag, FileText, CheckCircle2, BedDouble, Printer } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { getReceiptHTML } from "./ReceiptTemplate";
 
 interface Guest {
   id: string;
@@ -352,6 +353,15 @@ export default function GuestProfile({ guestId, onClose }: GuestProfileProps) {
       } catch (wrappedError: any) {
         setError("Permission Denied: Could not delete booking.");
       }
+    }
+  };
+
+  const handlePrintReceipt = (booking: Booking) => {
+    const html = getReceiptHTML(booking.guestName, booking.roomNumber, booking.checkIn, booking.checkOut, booking.totalAmount || 0);
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(html);
+      printWindow.document.close();
     }
   };
 
@@ -712,6 +722,13 @@ export default function GuestProfile({ guestId, onClose }: GuestProfileProps) {
                         )}
                       </>
                     )}
+                    <button
+                      onClick={() => handlePrintReceipt(booking)}
+                      className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors ml-auto md:ml-0"
+                      title="Print Invoice / Receipt"
+                    >
+                      <Printer className="w-3.5 h-3.5" />
+                    </button>
                     <button
                       onClick={() => handleDeleteBooking(booking.id)}
                       className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors ml-auto md:ml-0"

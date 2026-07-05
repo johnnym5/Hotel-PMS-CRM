@@ -22,11 +22,11 @@ interface CalendarTimelineProps {
   onSelectGuest: (guestId: string) => void;
 }
 
-// Fixed list of rooms at the Innsphere Inn
-const ROOMS = ["101", "102", "103", "104", "105", "201", "202", "203", "204", "205"];
+const FALLBACK_ROOMS = ["101", "102", "103", "104", "105", "201", "202", "203", "204", "205"];
 
 export default function CalendarTimeline({ onSelectGuest }: CalendarTimelineProps) {
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [rooms, setRooms] = useState<string[]>(FALLBACK_ROOMS);
   const [startDate, setStartDate] = useState<Date>(startOfDay(new Date()));
   const [loading, setLoading] = useState(true);
 
@@ -35,6 +35,22 @@ export default function CalendarTimeline({ onSelectGuest }: CalendarTimelineProp
 
   // Generate 14 days for the timeline headers starting from startDate
   const days = Array.from({ length: 14 }, (_, i) => addDays(startDate, i));
+
+  useEffect(() => {
+    // Dynamic Rooms Fetching
+    if (!isSandbox && auth.currentUser) {
+      const q = query(collection(db, "rooms"), where("ownerId", "==", auth.currentUser.uid));
+      const unsubRooms = onSnapshot(q, (snapshot) => {
+        if (!snapshot.empty) {
+          const fetchedRooms = snapshot.docs.map(d => d.data().roomNumber);
+          setRooms(fetchedRooms.sort());
+        } else {
+          setRooms(FALLBACK_ROOMS);
+        }
+      });
+      // Not saving unsubRooms for simplicity, or we could.
+    }
+  }, [isSandbox]);
 
   useEffect(() => {
     if (isSandbox) {
@@ -204,7 +220,7 @@ export default function CalendarTimeline({ onSelectGuest }: CalendarTimelineProp
 
             {/* Room Rows & Timeline Allocations */}
             <div className="divide-y divide-slate-100 border border-slate-100 rounded-b-xl overflow-hidden bg-white">
-              {ROOMS.map((roomNum) => {
+              {rooms.map((roomNum) => {
                 return (
                   <div key={roomNum} className="grid grid-cols-[100px_repeat(14,1fr)] h-16 relative">
                     {/* Room Cell */}

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { 
   signInWithPopup, 
   GoogleAuthProvider, 
@@ -27,6 +27,8 @@ import GuestsList from "../components/GuestsList";
 import GuestProfile from "../components/GuestProfile";
 import CalendarTimeline from "../components/CalendarTimeline";
 import ClientPortal from "../components/ClientPortal";
+import HousekeepingBoard from "../components/HousekeepingBoard";
+import AdminSettings from "../components/AdminSettings";
 import { 
   LogIn, 
   LogOut, 
@@ -42,7 +44,8 @@ import {
   HelpCircle,
   Eye,
   EyeOff,
-  User as UserIcon
+  User as UserIcon,
+  X
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -149,6 +152,22 @@ export default function Home() {
   const [roomOccupancyRate, setRoomOccupancyRate] = useState(0);
   const [projectedRevenue, setProjectedRevenue] = useState(0);
 
+  // Staff Dashboard Tabs
+  const [activeTab, setActiveTab] = useState<"frontdesk" | "housekeeping" | "settings">("frontdesk");
+
+  // Toast Notifications State
+  const [toasts, setToasts] = useState<{ id: string; title: string; message: string; type: "success" | "info" }[]>([]);
+  const knownBookingIdsRef = useRef<Set<string>>(new Set());
+  const isInitialLoadRef = useRef(true);
+
+  const addToast = (title: string, message: string, type: "success" | "info" = "info") => {
+    const id = Math.random().toString(36).substr(2, 9);
+    setToasts((prev) => [...prev, { id, title, message, type }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 5000);
+  };
+
   // Auth Observer
   useEffect(() => {
     // Check if we are in local sandbox mode first
@@ -222,16 +241,27 @@ export default function Home() {
           let occupiedRooms = new Set<string>();
           let revenueSum = 0;
 
-          allBookings.forEach((data) => {
-            if (data.ownerId === user.uid) {
-              bookingsCount++;
-              revenueSum += Number(data.totalAmount) || 0;
+          const currentOwnerBookings = allBookings.filter((data) => data.ownerId === user.uid);
 
-              if (data.status === "checked_in") {
-                activeGuests++;
-                if (data.roomNumber) {
-                  occupiedRooms.add(data.roomNumber);
-                }
+          if (!isInitialLoadRef.current) {
+            currentOwnerBookings.forEach((data) => {
+              if (!knownBookingIdsRef.current.has(data.id)) {
+                addToast("New Booking Alert", `Guest ${data.guestName} booked room ${data.roomNumber || "TBD"}`, "success");
+              }
+            });
+          }
+
+          // Update known booking IDs
+          knownBookingIdsRef.current = new Set(currentOwnerBookings.map(b => b.id));
+
+          currentOwnerBookings.forEach((data) => {
+            bookingsCount++;
+            revenueSum += Number(data.totalAmount) || 0;
+
+            if (data.status === "checked_in") {
+              activeGuests++;
+              if (data.roomNumber) {
+                occupiedRooms.add(data.roomNumber);
               }
             }
           });
@@ -243,6 +273,8 @@ export default function Home() {
           // We have 10 fixed rooms
           const rate = Math.round((occupiedRooms.size / 10) * 100);
           setRoomOccupancyRate(rate);
+
+          isInitialLoadRef.current = false;
         } catch (e) {
           console.error("Error loading local metrics", e);
         }
@@ -271,6 +303,13 @@ export default function Home() {
         let occupiedRooms = new Set<string>();
         let revenueSum = 0;
 
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === "added" && !isInitialLoadRef.current) {
+            const data = change.doc.data();
+            addToast("New Booking", `Guest ${data.guestName} created a new reservation.`, "success");
+          }
+        });
+
         snapshot.forEach((docSnap) => {
           const data = docSnap.data();
           bookingsCount++;
@@ -291,6 +330,8 @@ export default function Home() {
         // We have 10 fixed rooms
         const rate = Math.round((occupiedRooms.size / 10) * 100);
         setRoomOccupancyRate(rate);
+
+        isInitialLoadRef.current = false;
       });
 
       return () => unsubscribe();
@@ -496,9 +537,27 @@ export default function Home() {
           </div>
 
           {authError && (
-            <div className="p-4 bg-red-50 border border-red-100 rounded-2xl flex items-start gap-3 text-xs text-red-600 font-medium">
-              <ShieldAlert className="w-5 h-5 text-red-500 flex-shrink-0" />
-              <span>{authError}</span>
+            <div className="p-4 bg-red-50 border border-red-100 rounded-2xl flex flex-col gap-3 text-xs text-red-600 font-medium">
+              <div className="flex items-start gap-3">
+                <ShieldAlert className="w-5 h-5 text-red-500 flex-shrink-0" />
+                <span>{authError}</span>
+              </div>
+              {authError.includes("Sandbox Mode") && (
+                <div className="mt-1 pt-2 border-t border-red-200/50 flex flex-col sm:flex-row gap-2">
+                  <button
+                    onClick={() => handleDemoBypass("staff")}
+                    className="flex-1 py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-[10px] uppercase tracking-wide transition-all text-center"
+                  >
+                    Enter Demo Staff Mode
+                  </button>
+                  <button
+                    onClick={() => handleDemoBypass("client")}
+                    className="flex-1 py-2 px-3 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 font-bold rounded-xl text-[10px] uppercase tracking-wide transition-all text-center"
+                  >
+                    Enter Demo Client Mode
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -785,10 +844,33 @@ export default function Home() {
 
         </div>
 
-        {/* Bento Board Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-          
-          {/* Left Column: Guest Registry */}
+        {/* Dashboard Tabs */}
+        <div className="flex items-center gap-2 border-b border-slate-200 pb-px">
+          <button
+            onClick={() => setActiveTab("frontdesk")}
+            className={`px-4 py-2 text-sm font-bold capitalize transition-colors border-b-2 ${activeTab === "frontdesk" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+          >
+            Front Desk
+          </button>
+          <button
+            onClick={() => setActiveTab("housekeeping")}
+            className={`px-4 py-2 text-sm font-bold capitalize transition-colors border-b-2 ${activeTab === "housekeeping" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+          >
+            Housekeeping
+          </button>
+          <button
+            onClick={() => setActiveTab("settings")}
+            className={`px-4 py-2 text-sm font-bold capitalize transition-colors border-b-2 ${activeTab === "settings" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+          >
+            Admin Settings
+          </button>
+        </div>
+
+        {/* Tab Content */}
+        {activeTab === "frontdesk" && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+            
+            {/* Left Column: Guest Registry */}
           <div className="lg:col-span-1 h-[600px]">
             <GuestsList
               onSelectGuest={setSelectedGuestId}
@@ -829,8 +911,70 @@ export default function Home() {
           </div>
 
         </div>
+        )}
+
+        {activeTab === "housekeeping" && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="w-full"
+          >
+            <HousekeepingBoard />
+          </motion.div>
+        )}
+
+        {activeTab === "settings" && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="w-full"
+          >
+            <AdminSettings />
+          </motion.div>
+        )}
 
       </main>
+
+      {/* Real-time Toast Notifications */}
+      <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-3 max-w-sm w-full pointer-events-none" id="toast-notifications-container">
+        <AnimatePresence>
+          {toasts.map((toast) => (
+            <motion.div
+              key={toast.id}
+              layout
+              initial={{ opacity: 0, y: 50, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -20, scale: 0.9, transition: { duration: 0.2 } }}
+              className="bg-white/95 backdrop-blur-md border border-slate-150 shadow-2xl shadow-slate-200/50 rounded-2xl p-4 flex items-start gap-3 pointer-events-auto relative overflow-hidden"
+              id={`toast-${toast.id}`}
+            >
+              {/* Subtle colored accent left bar */}
+              <div className={`absolute left-0 top-0 bottom-0 w-1 ${toast.type === "success" ? "bg-emerald-500" : "bg-indigo-500"}`} />
+
+              <div className="flex-1 ml-1">
+                <div className="flex items-start justify-between gap-4">
+                  <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1.5 leading-none">
+                    {toast.type === "success" ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
+                    ) : (
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0" />
+                    )}
+                    {toast.title}
+                  </h4>
+                  <button
+                    onClick={() => setToasts((prev) => prev.filter((t) => t.id !== toast.id))}
+                    className="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-lg transition-colors leading-none -mt-1 -mr-1"
+                    id={`close-toast-${toast.id}`}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-600 font-medium mt-1.5 pr-4 leading-normal">{toast.message}</p>
+              </div>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }
