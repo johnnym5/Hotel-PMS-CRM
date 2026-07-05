@@ -1,6 +1,8 @@
 {
-  "name": "InnSphere CRM",
-  "description": "A specialized hotel customer relationship management system focused on the guest lifecycle, preference tracking, automatic engagement triggers, and repeat booking analytics.",
+  "name": "Innsphere CRM",
+  "description": "A modern guest house and inn CRM with calendar timeline, booking management, and guest profile tracking, built with Next.js and Firebase.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

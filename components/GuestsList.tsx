@@ -1,349 +1,316 @@
-'use client';
+"use client";
 
-import React, { useState } from 'react';
-import { Search, Filter, Plus, User, MapPin, Tag, ArrowUpRight, Mail, Phone, Crown } from 'lucide-react';
-import { Guest } from '../lib/mockData';
+import React, { useState, useEffect } from "react";
+import { collection, query, where, orderBy, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, getDocs } from "firebase/firestore";
+import { db, auth, handleFirestoreError, OperationType } from "../lib/firebase";
+import { Search, Plus, User, Mail, Phone, Calendar, Trash2, Edit, X, Save, AlertCircle } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
 
-interface GuestsListProps {
-  guests: Guest[];
-  onSelectGuest: (guestId: string) => void;
-  onAddGuest: (guest: Omit<Guest, 'id' | 'totalSpend'>) => void;
+interface Guest {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  notes: string;
+  ownerId: string;
 }
 
-export default function GuestsList({
-  guests,
-  onSelectGuest,
-  onAddGuest,
-}: GuestsListProps) {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [tierFilter, setTierFilter] = useState<string>('All');
-  const [isAddOpen, setIsAddOpen] = useState(false);
+interface GuestsListProps {
+  onSelectGuest: (guestId: string) => void;
+  selectedGuestId: string | null;
+}
 
-  // Form states
-  const [formData, setFormData] = useState({
-    firstName: '',
-    lastName: '',
-    email: '',
-    phone: '',
-    location: '',
-    loyaltyTier: 'Standard' as Guest['loyaltyTier'],
-    tagsString: '',
-  });
+export default function GuestsList({ onSelectGuest, selectedGuestId }: GuestsListProps) {
+  const [guests, setGuests] = useState<Guest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isAdding, setIsAdding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleAddSubmit = (e: React.FormEvent) => {
+  // Form State
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [notes, setNotes] = useState("");
+
+  const user = auth.currentUser;
+
+  useEffect(() => {
+    if (!user) return;
+
+    const path = "guests";
+    const q = query(
+      collection(db, path),
+      where("ownerId", "==", user.uid),
+      orderBy("name", "asc")
+    );
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const guestData: Guest[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data();
+          guestData.push({
+            id: docSnap.id,
+            name: data.name || "",
+            email: data.email || "",
+            phone: data.phone || "",
+            notes: data.notes || "",
+            ownerId: data.ownerId || "",
+          });
+        });
+        setGuests(guestData);
+        setLoading(false);
+        setError(null);
+      },
+      (err) => {
+        setLoading(false);
+        try {
+          handleFirestoreError(err, OperationType.LIST, path);
+        } catch (wrappedError: any) {
+          setError("Failed to load guests: Access Denied. Check Firestore security rules.");
+        }
+      }
+    );
+
+    return () => unsubscribe();
+  }, [user]);
+
+  const handleAddGuest = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.firstName || !formData.lastName || !formData.email) return;
+    if (!user) return;
+    if (!name.trim()) {
+      setError("Name is required");
+      return;
+    }
 
-    const tags = formData.tagsString
-      ? formData.tagsString.split(',').map((t) => t.trim()).filter(Boolean)
-      : ['New Guest'];
+    const path = "guests";
+    try {
+      setError(null);
+      await addDoc(collection(db, path), {
+        name: name.trim(),
+        email: email.trim() || null,
+        phone: phone.trim() || null,
+        notes: notes.trim() || null,
+        ownerId: user.uid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
 
-    onAddGuest({
-      firstName: formData.firstName,
-      lastName: formData.lastName,
-      email: formData.email,
-      phone: formData.phone || '+234',
-      location: formData.location || 'Lagos',
-      loyaltyTier: formData.loyaltyTier,
-      tags: tags,
-      avatarUrl: `https://picsum.photos/seed/${formData.firstName.toLowerCase()}/150`,
-    });
-
-    // Reset form
-    setFormData({
-      firstName: '',
-      lastName: '',
-      email: '',
-      phone: '',
-      location: '',
-      loyaltyTier: 'Standard',
-      tagsString: '',
-    });
-    setIsAddOpen(false);
-  };
-
-  const getTierBadgeColor = (tier: Guest['loyaltyTier']) => {
-    switch (tier) {
-      case 'VIP':
-        return 'bg-red-50 text-red-700 border-red-200';
-      case 'Platinum':
-        return 'bg-purple-50 text-purple-700 border-purple-200';
-      case 'Gold':
-        return 'bg-amber-50 text-amber-700 border-amber-200';
-      case 'Silver':
-        return 'bg-slate-50 text-slate-700 border-slate-200';
-      case 'Standard':
-        return 'bg-gray-50 text-gray-700 border-gray-200';
+      // Reset form
+      setName("");
+      setEmail("");
+      setPhone("");
+      setNotes("");
+      setIsAdding(false);
+    } catch (err) {
+      try {
+        handleFirestoreError(err, OperationType.CREATE, path);
+      } catch (wrappedError: any) {
+        setError("Permission Denied: Could not create guest. Check security rules and ensure email is verified.");
+      }
     }
   };
 
-  const filteredGuests = guests.filter((g) => {
-    const fullName = `${g.firstName} ${g.lastName}`.toLowerCase();
-    const matchesSearch =
-      fullName.includes(searchTerm.toLowerCase()) ||
-      g.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      g.location.toLowerCase().includes(searchTerm.toLowerCase());
+  const handleDeleteGuest = async (guestId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm("Are you sure you want to delete this guest profile? It will not delete associated bookings but will orphan them.")) return;
 
-    const matchesTier = tierFilter === 'All' || g.loyaltyTier === tierFilter;
-
-    return matchesSearch && matchesTier;
-  });
-
-  const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('en-NG', {
-      style: 'currency',
-      currency: 'NGN',
-      maximumFractionDigits: 0,
-    }).format(val);
+    const path = `guests/${guestId}`;
+    try {
+      await deleteDoc(doc(db, "guests", guestId));
+      if (selectedGuestId === guestId) {
+        onSelectGuest("");
+      }
+    } catch (err) {
+      try {
+        handleFirestoreError(err, OperationType.DELETE, path);
+      } catch (wrappedError: any) {
+        setError("Permission Denied: Could not delete guest. You must be the owner of this record.");
+      }
+    }
   };
 
+  const filteredGuests = guests.filter((guest) =>
+    guest.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    guest.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    guest.phone.includes(searchQuery)
+  );
+
   return (
-    <div className="space-y-6" id="guest-list-module">
-      {/* Search and Filters Bar */}
-      <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-3xs flex flex-col sm:flex-row items-center gap-4 justify-between">
-        <div className="relative w-full sm:max-w-md">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search guests by name, city, email..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 text-sm bg-gray-50/50 border border-gray-200 rounded-xl focus:outline-none focus:border-amber-500 focus:bg-white text-gray-800 transition"
-          />
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col h-full overflow-hidden" id="guests-list-container">
+      {/* Header */}
+      <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+        <div>
+          <h2 className="text-lg font-semibold tracking-tight text-slate-800 flex items-center gap-2">
+            <User className="w-5 h-5 text-indigo-600" />
+            Guest Registry
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">{guests.length} profile{guests.length !== 1 && "s"} registered</p>
         </div>
+        <button
+          onClick={() => setIsAdding(!isAdding)}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-sm hover:shadow transition-all"
+          id="btn-add-guest-toggle"
+        >
+          {isAdding ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+          {isAdding ? "Cancel" : "Add Guest"}
+        </button>
+      </div>
 
-        <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-gray-400" />
-            <select
-              value={tierFilter}
-              onChange={(e) => setTierFilter(e.target.value)}
-              className="text-xs font-semibold bg-gray-50 border border-gray-200 text-gray-700 py-2 px-3 rounded-xl focus:outline-none focus:border-amber-500"
-            >
-              <option value="All">All Loyalty Tiers</option>
-              <option value="VIP">VIP Tier</option>
-              <option value="Platinum">Platinum Tier</option>
-              <option value="Gold">Gold Tier</option>
-              <option value="Silver">Silver Tier</option>
-              <option value="Standard">Standard Tier</option>
-            </select>
-          </div>
+      {/* Error Banner */}
+      {error && (
+        <div className="p-3 bg-red-50 border-b border-red-100 flex items-start gap-2.5 text-xs text-red-600 font-medium">
+          <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
 
-          <button
-            onClick={() => setIsAddOpen(true)}
-            className="flex items-center gap-1.5 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-medium text-xs rounded-xl shadow-xs transition cursor-pointer"
+      {/* Add Guest Drawer Form */}
+      <AnimatePresence>
+        {isAdding && (
+          <motion.form
+            onSubmit={handleAddGuest}
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="border-b border-slate-100 bg-indigo-50/20 overflow-hidden"
+            id="form-add-guest"
           >
-            <Plus className="w-4 h-4" />
-            Register Guest
-          </button>
-        </div>
-      </div>
-
-      {/* Guest Listing Grid */}
-      <div className="bg-white border border-gray-100 rounded-2xl shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-gray-50/60 border-b border-gray-100">
-                <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Guest Profile</th>
-                <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Loyalty</th>
-                <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Region / City</th>
-                <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Segments & Tags</th>
-                <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Lifetime Value (LTV)</th>
-                <th className="p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {filteredGuests.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="text-center py-12 text-gray-400 text-sm">
-                    No guest profiles found matching the filters.
-                  </td>
-                </tr>
-              ) : (
-                filteredGuests.map((g) => (
-                  <tr key={g.id} className="hover:bg-gray-50/40 transition group">
-                    <td className="p-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full overflow-hidden bg-amber-50 border border-amber-100 flex items-center justify-center relative shadow-3xs">
-                          {g.avatarUrl ? (
-                            <img src={g.avatarUrl} alt={g.firstName} className="w-full h-full object-cover" />
-                          ) : (
-                            <User className="w-5 h-5 text-amber-600" />
-                          )}
-                        </div>
-                        <div>
-                          <span className="font-bold text-gray-800 block text-sm group-hover:text-amber-800 transition">
-                            {g.firstName} {g.lastName}
-                          </span>
-                          <span className="text-[11px] text-gray-400 block mt-0.5">{g.email}</span>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${getTierBadgeColor(g.loyaltyTier)} flex items-center gap-1 w-fit`}>
-                        <Crown className="w-3 h-3" />
-                        {g.loyaltyTier}
-                      </span>
-                    </td>
-                    <td className="p-4">
-                      <span className="text-xs text-gray-600 font-medium flex items-center gap-1">
-                        <MapPin className="w-3 h-3 text-gray-400" />
-                        {g.location}
-                      </span>
-                    </td>
-                    <td className="p-4">
-                      <div className="flex flex-wrap gap-1">
-                        {g.tags.map((tag) => (
-                          <span
-                            key={tag}
-                            className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-md text-[10px] font-medium flex items-center gap-0.5"
-                          >
-                            <Tag className="w-2.5 h-2.5 text-gray-400" />
-                            {tag}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      <span className="text-sm font-bold text-gray-800">{formatCurrency(g.totalSpend)}</span>
-                    </td>
-                    <td className="p-4 text-right">
-                      <button
-                        onClick={() => onSelectGuest(g.id)}
-                        className="inline-flex items-center gap-1 text-xs font-semibold bg-gray-50 border border-gray-200 hover:border-amber-600 hover:bg-amber-50 text-gray-700 hover:text-amber-800 px-3 py-1.5 rounded-lg transition cursor-pointer"
-                      >
-                        360 Profile
-                        <ArrowUpRight className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Register Guest Modal */}
-      {isAddOpen && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
-          <div className="bg-white rounded-3xl border border-gray-100 max-w-lg w-full overflow-hidden shadow-2xl">
-            <div className="p-6 bg-amber-50/50 border-b border-amber-100">
-              <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                <Crown className="w-5 h-5 text-amber-600" />
-                Register New Patron
-              </h3>
-              <p className="text-xs text-gray-500 mt-1">Create a guest profile to begin tracking preference stay cycles.</p>
-            </div>
-
-            <form onSubmit={handleAddSubmit} className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">First Name *</label>
+                  <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-500 mb-1">Full Name *</label>
                   <input
                     type="text"
                     required
-                    placeholder="e.g. Kola"
-                    value={formData.firstName}
-                    onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-amber-500 text-gray-800"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="e.g. John Doe"
+                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Last Name *</label>
+                  <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-500 mb-1">Email Address</label>
                   <input
-                    type="text"
-                    required
-                    placeholder="e.g. Alao"
-                    value={formData.lastName}
-                    onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-amber-500 text-gray-800"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="e.g. john@example.com"
+                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
                   />
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Email Address *</label>
-                <input
-                  type="email"
-                  required
-                  placeholder="kola@company.com"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-amber-500 text-gray-800"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Phone Number</label>
+                  <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-500 mb-1">Phone Number</label>
                   <input
                     type="tel"
-                    placeholder="+234 803 000 0000"
-                    value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-amber-500 text-gray-800"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="e.g. +1 (555) 019-2834"
+                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Region / City</label>
+                  <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-500 mb-1">Notes / Preferences</label>
                   <input
                     type="text"
-                    placeholder="e.g. Abuja"
-                    value={formData.location}
-                    onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-amber-500 text-gray-800"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Allergies, high floor, repeat guest"
+                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
                   />
                 </div>
               </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Loyalty Tier Status</label>
-                  <select
-                    value={formData.loyaltyTier}
-                    onChange={(e) => setFormData({ ...formData, loyaltyTier: e.target.value as Guest['loyaltyTier'] })}
-                    className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-amber-500 bg-white text-gray-800"
-                  >
-                    <option value="Standard">Standard</option>
-                    <option value="Silver">Silver</option>
-                    <option value="Gold">Gold</option>
-                    <option value="Platinum">Platinum</option>
-                    <option value="VIP">VIP</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Segments (Comma separated)</label>
-                  <input
-                    type="text"
-                    placeholder="Corporate, VIP, Short-Let"
-                    value={formData.tagsString}
-                    onChange={(e) => setFormData({ ...formData, tagsString: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-amber-500 text-gray-800"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-4 border-t border-gray-100">
+              <div className="flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsAddOpen(false)}
-                  className="px-4 py-2 border border-gray-200 text-gray-600 rounded-xl text-xs font-semibold hover:bg-gray-50 transition cursor-pointer"
+                  onClick={() => setIsAdding(false)}
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
                 >
                   Close
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-semibold transition cursor-pointer"
+                  className="px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg flex items-center gap-1 shadow-sm"
                 >
-                  Register Patron
+                  <Save className="w-3.5 h-3.5" />
+                  Save Profile
                 </button>
               </div>
-            </form>
-          </div>
+            </div>
+          </motion.form>
+        )}
+      </AnimatePresence>
+
+      {/* Search Bar */}
+      <div className="p-3 border-b border-slate-100 flex items-center bg-white">
+        <div className="relative w-full">
+          <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by name, email or phone..."
+            className="w-full pl-9 pr-4 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-slate-50/50"
+          />
         </div>
-      )}
+      </div>
+
+      {/* Guest List Content */}
+      <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
+        {loading ? (
+          <div className="p-8 text-center text-xs text-slate-400">Loading registry...</div>
+        ) : filteredGuests.length === 0 ? (
+          <div className="p-8 text-center text-xs text-slate-400">
+            {searchQuery ? "No guests match your search filter." : "No guests registered. Add your first guest above!"}
+          </div>
+        ) : (
+          filteredGuests.map((guest) => {
+            const isSelected = selectedGuestId === guest.id;
+            return (
+              <div
+                key={guest.id}
+                onClick={() => onSelectGuest(guest.id)}
+                className={`p-4 flex items-start justify-between cursor-pointer transition-all ${
+                  isSelected ? "bg-indigo-50/50 border-l-4 border-indigo-600" : "hover:bg-slate-50/50"
+                }`}
+                id={`guest-row-${guest.id}`}
+              >
+                <div className="space-y-1.5 flex-1 min-w-0 pr-4">
+                  <h3 className="text-xs font-semibold text-slate-800 truncate">{guest.name}</h3>
+                  <div className="flex flex-wrap gap-y-1 gap-x-3 text-[10px] text-slate-500">
+                    {guest.email && (
+                      <span className="flex items-center gap-1">
+                        <Mail className="w-3 h-3 text-slate-400" />
+                        {guest.email}
+                      </span>
+                    )}
+                    {guest.phone && (
+                      <span className="flex items-center gap-1">
+                        <Phone className="w-3 h-3 text-slate-400" />
+                        {guest.phone}
+                      </span>
+                    )}
+                  </div>
+                  {guest.notes && (
+                    <p className="text-[10px] text-slate-400 truncate italic">"{guest.notes}"</p>
+                  )}
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={(e) => handleDeleteGuest(guest.id, e)}
+                    className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg transition-colors"
+                    title="Delete Guest"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
     </div>
   );
 }

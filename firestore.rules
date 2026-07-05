@@ -1,0 +1,102 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net - Default Deny Catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- PRIMITIVE HELPERS ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // --- ENTITY VALIDATION SCHEMAS ---
+
+    // Guest Validation Schema
+    function isValidGuest(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && (data.email == null || (data.email is string && data.email.size() <= 100))
+        && (data.phone == null || (data.phone is string && data.phone.size() <= 50))
+        && (data.notes == null || (data.notes is string && data.notes.size() <= 1000))
+        && data.ownerId is string && data.ownerId == request.auth.uid;
+    }
+
+    function isValidGuestCreate(data) {
+      return isValidGuest(data)
+        && data.keys().hasAll(['name', 'ownerId', 'createdAt', 'updatedAt'])
+        && data.keys().size() <= 7
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
+    function isValidGuestUpdate(data) {
+      return isValidGuest(data)
+        && data.updatedAt == request.time
+        // Immortal Field Safeguards
+        && data.createdAt == resource.data.createdAt
+        && data.ownerId == resource.data.ownerId;
+    }
+
+    // Booking Validation Schema
+    function isValidBooking(data) {
+      return data.guestId is string && data.guestId.size() <= 128
+        && data.guestName is string && data.guestName.size() > 0 && data.guestName.size() <= 100
+        && data.roomNumber is string && data.roomNumber.size() > 0 && data.roomNumber.size() <= 20
+        && data.checkIn is string && data.checkIn.size() == 10
+        && data.checkOut is string && data.checkOut.size() == 10
+        && data.status is string && (data.status == 'confirmed' || data.status == 'checked_in' || data.status == 'checked_out' || data.status == 'cancelled')
+        && (data.totalAmount == null || data.totalAmount is number)
+        && (data.notes == null || (data.notes is string && data.notes.size() <= 1000))
+        && data.ownerId is string && data.ownerId == request.auth.uid;
+    }
+
+    function isValidBookingCreate(data) {
+      return isValidBooking(data)
+        && data.keys().hasAll(['guestId', 'guestName', 'roomNumber', 'checkIn', 'checkOut', 'status', 'ownerId', 'createdAt', 'updatedAt'])
+        && data.keys().size() <= 11
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
+    function isValidBookingUpdate(data) {
+      return isValidBooking(data)
+        && data.updatedAt == request.time
+        // Immortal Field Safeguards
+        && data.createdAt == resource.data.createdAt
+        && data.ownerId == resource.data.ownerId;
+    }
+
+    // --- COLLECTION ACCESS RULES ---
+
+    // Guests Collection
+    match /guests/{guestId} {
+      allow get: if isEmailVerified() && resource.data.ownerId == request.auth.uid;
+      allow list: if isEmailVerified() && resource.data.ownerId == request.auth.uid;
+      allow create: if isEmailVerified() && isValidId(guestId) && isValidGuestCreate(request.resource.data);
+      allow update: if isEmailVerified() && isValidId(guestId) && isValidGuestUpdate(request.resource.data) && resource.data.ownerId == request.auth.uid;
+      allow delete: if isEmailVerified() && isValidId(guestId) && resource.data.ownerId == request.auth.uid;
+    }
+
+    // Bookings Collection
+    match /bookings/{bookingId} {
+      allow get: if isEmailVerified() && resource.data.ownerId == request.auth.uid;
+      allow list: if isEmailVerified() && resource.data.ownerId == request.auth.uid;
+      // Global Consistency Invariant: Ensures the referenced guest exists in the database
+      allow create: if isEmailVerified() && isValidId(bookingId) && isValidBookingCreate(request.resource.data)
+        && exists(/databases/$(database)/documents/guests/$(request.resource.data.guestId));
+      allow update: if isEmailVerified() && isValidId(bookingId) && isValidBookingUpdate(request.resource.data) && resource.data.ownerId == request.auth.uid;
+      allow delete: if isEmailVerified() && isValidId(bookingId) && resource.data.ownerId == request.auth.uid;
+    }
+
+  }
+}

@@ -1,0 +1,102 @@
+{
+  "entities": {
+    "guest": {
+      "title": "Guest",
+      "description": "A guest profile at the inn",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Full name of the guest"
+        },
+        "email": {
+          "type": "string",
+          "description": "Email address of the guest"
+        },
+        "phone": {
+          "type": "string",
+          "description": "Phone number of the guest"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Custom preferences or private notes"
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "UID of the user managing this guest"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["name", "ownerId", "createdAt", "updatedAt"]
+    },
+    "booking": {
+      "title": "Booking",
+      "description": "A room reservation for a guest",
+      "type": "object",
+      "properties": {
+        "guestId": {
+          "type": "string",
+          "description": "Document ID of the associated guest"
+        },
+        "guestName": {
+          "type": "string",
+          "description": "Name of the guest (for timeline display)"
+        },
+        "roomNumber": {
+          "type": "string",
+          "description": "Room number assigned to the booking"
+        },
+        "checkIn": {
+          "type": "string",
+          "description": "Check-in date (YYYY-MM-DD)"
+        },
+        "checkOut": {
+          "type": "string",
+          "description": "Check-out date (YYYY-MM-DD)"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["confirmed", "checked_in", "checked_out", "cancelled"]
+        },
+        "totalAmount": {
+          "type": "number",
+          "description": "Price or total reservation amount"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Special booking details or requests"
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "UID of the user managing this booking"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["guestId", "guestName", "roomNumber", "checkIn", "checkOut", "status", "ownerId", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "guests": {
+      "schema": "guest",
+      "description": "Collection of guest records"
+    },
+    "bookings": {
+      "schema": "booking",
+      "description": "Collection of room reservation records"
+    }
+  }
+}
