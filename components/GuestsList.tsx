@@ -33,58 +33,120 @@ export default function GuestsList({ onSelectGuest, selectedGuestId }: GuestsLis
   const [phone, setPhone] = useState("");
   const [notes, setNotes] = useState("");
 
-  const user = auth.currentUser;
+  const isSandbox = !auth.currentUser || (typeof window !== "undefined" && localStorage.getItem("innsphere_sandbox_mode") === "true");
+  const currentUserId = auth.currentUser?.uid || (typeof window !== "undefined" ? localStorage.getItem("innsphere_sandbox_user_id") : null) || "sandbox_user";
 
   useEffect(() => {
-    if (!user) return;
-
-    const path = "guests";
-    const q = query(
-      collection(db, path),
-      where("ownerId", "==", user.uid),
-      orderBy("name", "asc")
-    );
-
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const guestData: Guest[] = [];
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          guestData.push({
-            id: docSnap.id,
-            name: data.name || "",
-            email: data.email || "",
-            phone: data.phone || "",
-            notes: data.notes || "",
-            ownerId: data.ownerId || "",
-          });
-        });
-        setGuests(guestData);
-        setLoading(false);
-        setError(null);
-      },
-      (err) => {
-        setLoading(false);
+    if (isSandbox) {
+      const loadLocalGuests = () => {
         try {
-          handleFirestoreError(err, OperationType.LIST, path);
-        } catch (wrappedError: any) {
-          setError("Failed to load guests: Access Denied. Check Firestore security rules.");
+          const raw = localStorage.getItem("innsphere_sandbox_guests");
+          const allGuests: Guest[] = raw ? JSON.parse(raw) : [];
+          // Filter by ownerId of the active sandbox staff operator
+          const userGuests = allGuests.filter(g => g.ownerId === currentUserId);
+          setGuests(userGuests.sort((a, b) => a.name.localeCompare(b.name)));
+          setLoading(false);
+          setError(null);
+        } catch (e) {
+          console.error("Error loading local guests", e);
+          setGuests([]);
+          setLoading(false);
         }
-      }
-    );
+      };
 
-    return () => unsubscribe();
-  }, [user]);
+      loadLocalGuests();
+
+      const handleStorageChange = () => {
+        loadLocalGuests();
+      };
+      window.addEventListener("storage", handleStorageChange);
+      window.addEventListener("innsphere_local_update", handleStorageChange);
+      return () => {
+        window.removeEventListener("storage", handleStorageChange);
+        window.removeEventListener("innsphere_local_update", handleStorageChange);
+      };
+    } else {
+      if (!auth.currentUser) return;
+
+      const path = "guests";
+      const q = query(
+        collection(db, path),
+        where("ownerId", "==", auth.currentUser.uid),
+        orderBy("name", "asc")
+      );
+
+      const unsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
+          const guestData: Guest[] = [];
+          snapshot.forEach((docSnap) => {
+            const data = docSnap.data();
+            guestData.push({
+              id: docSnap.id,
+              name: data.name || "",
+              email: data.email || "",
+              phone: data.phone || "",
+              notes: data.notes || "",
+              ownerId: data.ownerId || "",
+            });
+          });
+          setGuests(guestData);
+          setLoading(false);
+          setError(null);
+        },
+        (err) => {
+          setLoading(false);
+          try {
+            handleFirestoreError(err, OperationType.LIST, path);
+          } catch (wrappedError: any) {
+            setError("Failed to load guests: Access Denied. Check Firestore security rules.");
+          }
+        }
+      );
+
+      return () => unsubscribe();
+    }
+  }, [auth.currentUser, currentUserId, isSandbox]);
 
   const handleAddGuest = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
     if (!name.trim()) {
       setError("Name is required");
       return;
     }
 
+    if (isSandbox) {
+      try {
+        const newGuest: Guest = {
+          id: "guest_" + Date.now(),
+          name: name.trim(),
+          email: email.trim() || "",
+          phone: phone.trim() || "",
+          notes: notes.trim() || "",
+          ownerId: currentUserId
+        };
+        const raw = localStorage.getItem("innsphere_sandbox_guests");
+        const allGuests: Guest[] = raw ? JSON.parse(raw) : [];
+        allGuests.push(newGuest);
+        localStorage.setItem("innsphere_sandbox_guests", JSON.stringify(allGuests));
+        
+        // Dispatch local event
+        window.dispatchEvent(new Event("innsphere_local_update"));
+        
+        // Reset form
+        setName("");
+        setEmail("");
+        setPhone("");
+        setNotes("");
+        setIsAdding(false);
+        setError(null);
+      } catch (err) {
+        setError("Failed to save guest locally.");
+      }
+      return;
+    }
+
+    if (!auth.currentUser) return;
     const path = "guests";
     try {
       setError(null);
@@ -93,7 +155,7 @@ export default function GuestsList({ onSelectGuest, selectedGuestId }: GuestsLis
         email: email.trim() || null,
         phone: phone.trim() || null,
         notes: notes.trim() || null,
-        ownerId: user.uid,
+        ownerId: auth.currentUser.uid,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -116,6 +178,31 @@ export default function GuestsList({ onSelectGuest, selectedGuestId }: GuestsLis
   const handleDeleteGuest = async (guestId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!confirm("Are you sure you want to delete this guest profile? It will not delete associated bookings but will orphan them.")) return;
+
+    if (isSandbox) {
+      try {
+        const raw = localStorage.getItem("innsphere_sandbox_guests");
+        const allGuests: Guest[] = raw ? JSON.parse(raw) : [];
+        const filtered = allGuests.filter(g => g.id !== guestId);
+        localStorage.setItem("innsphere_sandbox_guests", JSON.stringify(filtered));
+        
+        // Also delete associated bookings for this guest
+        const rawBookings = localStorage.getItem("innsphere_sandbox_bookings");
+        const allBookings: any[] = rawBookings ? JSON.parse(rawBookings) : [];
+        const filteredBookings = allBookings.filter(b => b.guestId !== guestId);
+        localStorage.setItem("innsphere_sandbox_bookings", JSON.stringify(filteredBookings));
+
+        // Dispatch local event
+        window.dispatchEvent(new Event("innsphere_local_update"));
+        
+        if (selectedGuestId === guestId) {
+          onSelectGuest("");
+        }
+      } catch (err) {
+        setError("Failed to delete guest locally.");
+      }
+      return;
+    }
 
     const path = `guests/${guestId}`;
     try {

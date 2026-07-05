@@ -54,100 +54,181 @@ export default function GuestProfile({ guestId, onClose }: GuestProfileProps) {
   const [bookingNotes, setBookingNotes] = useState("");
   const [status, setStatus] = useState("confirmed");
 
-  const user = auth.currentUser;
+  const isSandbox = !auth.currentUser || (typeof window !== "undefined" && localStorage.getItem("innsphere_sandbox_mode") === "true");
+  const currentUserId = auth.currentUser?.uid || (typeof window !== "undefined" ? localStorage.getItem("innsphere_sandbox_user_id") : null) || "sandbox_user";
 
   // Load Guest Details and Bookings
   useEffect(() => {
-    if (!user || !guestId) return;
+    if (!guestId) return;
 
-    setLoading(true);
-    const guestRef = doc(db, "guests", guestId);
-
-    // Fetch guest details real-time
-    const unsubGuest = onSnapshot(
-      guestRef,
-      (docSnap) => {
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          const loadedGuest = {
-            id: docSnap.id,
-            name: data.name || "",
-            email: data.email || "",
-            phone: data.phone || "",
-            notes: data.notes || "",
-            ownerId: data.ownerId || "",
-          };
-          setGuest(loadedGuest);
-          setName(loadedGuest.name);
-          setEmail(loadedGuest.email);
-          setPhone(loadedGuest.phone);
-          setNotes(loadedGuest.notes);
-          setError(null);
-        } else {
-          setGuest(null);
-        }
-      },
-      (err) => {
+    if (isSandbox) {
+      setLoading(true);
+      const loadLocalData = () => {
         try {
-          handleFirestoreError(err, OperationType.GET, `guests/${guestId}`);
-        } catch (wrappedError) {
-          setError("Failed to load guest profile. Access Denied.");
+          // Load Guest
+          const rawGuests = localStorage.getItem("innsphere_sandbox_guests");
+          const allGuests: any[] = rawGuests ? JSON.parse(rawGuests) : [];
+          const foundGuest = allGuests.find(g => g.id === guestId);
+          if (foundGuest) {
+            const loadedGuest = {
+              id: foundGuest.id,
+              name: foundGuest.name || "",
+              email: foundGuest.email || "",
+              phone: foundGuest.phone || "",
+              notes: foundGuest.notes || "",
+              ownerId: foundGuest.ownerId || "",
+            };
+            setGuest(loadedGuest);
+            setName(loadedGuest.name);
+            setEmail(loadedGuest.email);
+            setPhone(loadedGuest.phone);
+            setNotes(loadedGuest.notes);
+            setError(null);
+          } else {
+            setGuest(null);
+          }
+
+          // Load Bookings
+          const rawBookings = localStorage.getItem("innsphere_sandbox_bookings");
+          const allBookings: any[] = rawBookings ? JSON.parse(rawBookings) : [];
+          const guestBookings = allBookings.filter(b => b.guestId === guestId);
+          setBookings(guestBookings.sort((a, b) => b.checkIn.localeCompare(a.checkIn)));
+          setLoading(false);
+        } catch (e) {
+          console.error("Error loading local profile", e);
+          setLoading(false);
         }
-      }
-    );
+      };
 
-    // Fetch guest's bookings
-    const bookingsPath = "bookings";
-    const bookingsQuery = query(
-      collection(db, bookingsPath),
-      where("guestId", "==", guestId),
-      orderBy("checkIn", "desc")
-    );
+      loadLocalData();
 
-    const unsubBookings = onSnapshot(
-      bookingsQuery,
-      (snapshot) => {
-        const loadedBookings: Booking[] = [];
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          loadedBookings.push({
-            id: docSnap.id,
-            guestId: data.guestId || "",
-            guestName: data.guestName || "",
-            roomNumber: data.roomNumber || "",
-            checkIn: data.checkIn || "",
-            checkOut: data.checkOut || "",
-            status: data.status || "confirmed",
-            totalAmount: Number(data.totalAmount) || 0,
-            notes: data.notes || "",
+      const handleStorageChange = () => {
+        loadLocalData();
+      };
+      window.addEventListener("storage", handleStorageChange);
+      window.addEventListener("innsphere_local_update", handleStorageChange);
+      return () => {
+        window.removeEventListener("storage", handleStorageChange);
+        window.removeEventListener("innsphere_local_update", handleStorageChange);
+      };
+    } else {
+      if (!auth.currentUser) return;
+
+      setLoading(true);
+      const guestRef = doc(db, "guests", guestId);
+
+      // Fetch guest details real-time
+      const unsubGuest = onSnapshot(
+        guestRef,
+        (docSnap) => {
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            const loadedGuest = {
+              id: docSnap.id,
+              name: data.name || "",
+              email: data.email || "",
+              phone: data.phone || "",
+              notes: data.notes || "",
+              ownerId: data.ownerId || "",
+            };
+            setGuest(loadedGuest);
+            setName(loadedGuest.name);
+            setEmail(loadedGuest.email);
+            setPhone(loadedGuest.phone);
+            setNotes(loadedGuest.notes);
+            setError(null);
+          } else {
+            setGuest(null);
+          }
+        },
+        (err) => {
+          try {
+            handleFirestoreError(err, OperationType.GET, `guests/${guestId}`);
+          } catch (wrappedError) {
+            setError("Failed to load guest profile. Access Denied.");
+          }
+        }
+      );
+
+      // Fetch guest's bookings
+      const bookingsPath = "bookings";
+      const bookingsQuery = query(
+        collection(db, bookingsPath),
+        where("guestId", "==", guestId),
+        orderBy("checkIn", "desc")
+      );
+
+      const unsubBookings = onSnapshot(
+        bookingsQuery,
+        (snapshot) => {
+          const loadedBookings: Booking[] = [];
+          snapshot.forEach((docSnap) => {
+            const data = docSnap.data();
+            loadedBookings.push({
+              id: docSnap.id,
+              guestId: data.guestId || "",
+              guestName: data.guestName || "",
+              roomNumber: data.roomNumber || "",
+              checkIn: data.checkIn || "",
+              checkOut: data.checkOut || "",
+              status: data.status || "confirmed",
+              totalAmount: Number(data.totalAmount) || 0,
+              notes: data.notes || "",
+            });
           });
-        });
-        setBookings(loadedBookings);
-        setLoading(false);
-      },
-      (err) => {
-        try {
-          handleFirestoreError(err, OperationType.LIST, bookingsPath);
-        } catch (wrappedError) {
-          console.error("Failed to load bookings");
+          setBookings(loadedBookings);
+          setLoading(false);
+        },
+        (err) => {
+          try {
+            handleFirestoreError(err, OperationType.LIST, bookingsPath);
+          } catch (wrappedError) {
+            console.error("Failed to load bookings");
+          }
         }
-      }
-    );
+      );
 
-    return () => {
-      unsubGuest();
-      unsubBookings();
-    };
-  }, [guestId, user]);
+      return () => {
+        unsubGuest();
+        unsubBookings();
+      };
+    }
+  }, [guestId, auth.currentUser, isSandbox]);
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !guest) return;
+    if (!guest) return;
     if (!name.trim()) {
       setError("Name is required");
       return;
     }
 
+    if (isSandbox) {
+      try {
+        const rawGuests = localStorage.getItem("innsphere_sandbox_guests");
+        const allGuests: any[] = rawGuests ? JSON.parse(rawGuests) : [];
+        const updated = allGuests.map(g => {
+          if (g.id === guest.id) {
+            return {
+              ...g,
+              name: name.trim(),
+              email: email.trim(),
+              phone: phone.trim(),
+              notes: notes.trim(),
+            };
+          }
+          return g;
+        });
+        localStorage.setItem("innsphere_sandbox_guests", JSON.stringify(updated));
+        window.dispatchEvent(new Event("innsphere_local_update"));
+        setIsEditing(false);
+      } catch (err) {
+        setError("Failed to update profile locally.");
+      }
+      return;
+    }
+
+    if (!auth.currentUser) return;
     const path = `guests/${guest.id}`;
     try {
       setError(null);
@@ -170,12 +251,48 @@ export default function GuestProfile({ guestId, onClose }: GuestProfileProps) {
 
   const handleAddBooking = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !guest) return;
+    if (!guest) return;
     if (!roomNumber.trim() || !checkIn || !checkOut) {
       setError("Room, Check-in, and Check-out are required.");
       return;
     }
 
+    if (isSandbox) {
+      try {
+        const newBooking = {
+          id: "booking_" + Date.now(),
+          guestId: guest.id,
+          guestName: guest.name,
+          roomNumber: roomNumber.trim(),
+          checkIn,
+          checkOut,
+          status,
+          totalAmount: totalAmount ? Number(totalAmount) : 0,
+          notes: bookingNotes.trim() || "",
+          ownerId: currentUserId
+        };
+        const rawBookings = localStorage.getItem("innsphere_sandbox_bookings");
+        const allBookings: any[] = rawBookings ? JSON.parse(rawBookings) : [];
+        allBookings.push(newBooking);
+        localStorage.setItem("innsphere_sandbox_bookings", JSON.stringify(allBookings));
+        window.dispatchEvent(new Event("innsphere_local_update"));
+
+        // Reset form
+        setRoomNumber("");
+        setCheckIn("");
+        setCheckOut("");
+        setTotalAmount("");
+        setBookingNotes("");
+        setStatus("confirmed");
+        setIsAddingBooking(false);
+        setError(null);
+      } catch (err) {
+        setError("Failed to create booking locally.");
+      }
+      return;
+    }
+
+    if (!auth.currentUser) return;
     const path = "bookings";
     try {
       setError(null);
@@ -188,7 +305,7 @@ export default function GuestProfile({ guestId, onClose }: GuestProfileProps) {
         status,
         totalAmount: totalAmount ? Number(totalAmount) : 0,
         notes: bookingNotes.trim() || null,
-        ownerId: user.uid,
+        ownerId: auth.currentUser.uid,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -213,6 +330,19 @@ export default function GuestProfile({ guestId, onClose }: GuestProfileProps) {
   const handleDeleteBooking = async (bookingId: string) => {
     if (!confirm("Are you sure you want to delete this reservation record?")) return;
 
+    if (isSandbox) {
+      try {
+        const rawBookings = localStorage.getItem("innsphere_sandbox_bookings");
+        const allBookings: any[] = rawBookings ? JSON.parse(rawBookings) : [];
+        const filtered = allBookings.filter(b => b.id !== bookingId);
+        localStorage.setItem("innsphere_sandbox_bookings", JSON.stringify(filtered));
+        window.dispatchEvent(new Event("innsphere_local_update"));
+      } catch (err) {
+        setError("Failed to delete booking locally.");
+      }
+      return;
+    }
+
     const path = `bookings/${bookingId}`;
     try {
       await deleteDoc(doc(db, "bookings", bookingId));
@@ -226,6 +356,24 @@ export default function GuestProfile({ guestId, onClose }: GuestProfileProps) {
   };
 
   const handleUpdateBookingStatus = async (bookingId: string, newStatus: string) => {
+    if (isSandbox) {
+      try {
+        const rawBookings = localStorage.getItem("innsphere_sandbox_bookings");
+        const allBookings: any[] = rawBookings ? JSON.parse(rawBookings) : [];
+        const updated = allBookings.map(b => {
+          if (b.id === bookingId) {
+            return { ...b, status: newStatus };
+          }
+          return b;
+        });
+        localStorage.setItem("innsphere_sandbox_bookings", JSON.stringify(updated));
+        window.dispatchEvent(new Event("innsphere_local_update"));
+      } catch (err) {
+        setError("Failed to update booking status locally.");
+      }
+      return;
+    }
+
     const path = `bookings/${bookingId}`;
     try {
       await updateDoc(doc(db, "bookings", bookingId), {

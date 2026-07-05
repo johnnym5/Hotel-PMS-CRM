@@ -30,54 +30,90 @@ export default function CalendarTimeline({ onSelectGuest }: CalendarTimelineProp
   const [startDate, setStartDate] = useState<Date>(startOfDay(new Date()));
   const [loading, setLoading] = useState(true);
 
-  const user = auth.currentUser;
+  const isSandbox = !auth.currentUser || (typeof window !== "undefined" && localStorage.getItem("innsphere_sandbox_mode") === "true");
+  const currentUserId = auth.currentUser?.uid || (typeof window !== "undefined" ? localStorage.getItem("innsphere_sandbox_user_id") : null) || "sandbox_user";
 
   // Generate 14 days for the timeline headers starting from startDate
   const days = Array.from({ length: 14 }, (_, i) => addDays(startDate, i));
 
   useEffect(() => {
-    if (!user) return;
-
-    const path = "bookings";
-    const q = query(
-      collection(db, path),
-      where("ownerId", "==", user.uid),
-      orderBy("checkIn", "asc")
-    );
-
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const loadedBookings: Booking[] = [];
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          loadedBookings.push({
-            id: docSnap.id,
-            guestId: data.guestId || "",
-            guestName: data.guestName || "",
-            roomNumber: data.roomNumber || "",
-            checkIn: data.checkIn || "",
-            checkOut: data.checkOut || "",
-            status: data.status || "confirmed",
-            totalAmount: Number(data.totalAmount) || 0,
-            notes: data.notes || "",
-          });
-        });
-        setBookings(loadedBookings);
-        setLoading(false);
-      },
-      (err) => {
+    if (isSandbox) {
+      const loadLocalBookings = () => {
         try {
-          handleFirestoreError(err, OperationType.LIST, path);
-        } catch (wrappedError) {
-          console.error("Failed to load timeline bookings.");
+          const raw = localStorage.getItem("innsphere_sandbox_bookings");
+          const allBookings: Booking[] = raw ? JSON.parse(raw) : [];
+          // Filter by ownerId of the active sandbox staff operator
+          const userBookings = allBookings.filter(b => {
+            // Find guest in the sandbox registry to ensure it belongs to this operator
+            const rawGuests = localStorage.getItem("innsphere_sandbox_guests") || "[]";
+            const allGuests: any[] = JSON.parse(rawGuests);
+            const guest = allGuests.find(g => g.id === b.guestId);
+            return (guest && guest.ownerId === currentUserId) || b.id.startsWith("booking_seed_");
+          });
+          setBookings(userBookings);
+          setLoading(false);
+        } catch (e) {
+          console.error("Error loading local bookings", e);
+          setBookings([]);
           setLoading(false);
         }
-      }
-    );
+      };
 
-    return () => unsubscribe();
-  }, [user]);
+      loadLocalBookings();
+
+      const handleStorageChange = () => {
+        loadLocalBookings();
+      };
+      window.addEventListener("storage", handleStorageChange);
+      window.addEventListener("innsphere_local_update", handleStorageChange);
+      return () => {
+        window.removeEventListener("storage", handleStorageChange);
+        window.removeEventListener("innsphere_local_update", handleStorageChange);
+      };
+    } else {
+      if (!auth.currentUser) return;
+
+      const path = "bookings";
+      const q = query(
+        collection(db, path),
+        where("ownerId", "==", auth.currentUser.uid),
+        orderBy("checkIn", "asc")
+      );
+
+      const unsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
+          const loadedBookings: Booking[] = [];
+          snapshot.forEach((docSnap) => {
+            const data = docSnap.data();
+            loadedBookings.push({
+              id: docSnap.id,
+              guestId: data.guestId || "",
+              guestName: data.guestName || "",
+              roomNumber: data.roomNumber || "",
+              checkIn: data.checkIn || "",
+              checkOut: data.checkOut || "",
+              status: data.status || "confirmed",
+              totalAmount: Number(data.totalAmount) || 0,
+              notes: data.notes || "",
+            });
+          });
+          setBookings(loadedBookings);
+          setLoading(false);
+        },
+        (err) => {
+          try {
+            handleFirestoreError(err, OperationType.LIST, path);
+          } catch (wrappedError) {
+            console.error("Failed to load timeline bookings.");
+            setLoading(false);
+          }
+        }
+      );
+
+      return () => unsubscribe();
+    }
+  }, [auth.currentUser, currentUserId, isSandbox]);
 
   const handlePrevDays = () => {
     setStartDate(subDays(startDate, 7));

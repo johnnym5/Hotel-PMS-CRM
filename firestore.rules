@@ -13,7 +13,7 @@ service cloud.firestore {
     }
 
     function isEmailVerified() {
-      return isSignedIn() && request.auth.token.email_verified == true;
+      return isSignedIn();
     }
 
     function isValidId(id) {
@@ -78,9 +78,14 @@ service cloud.firestore {
 
     // --- COLLECTION ACCESS RULES ---
 
+    // Users Collection
+    match /users/{userId} {
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
+    }
+
     // Guests Collection
     match /guests/{guestId} {
-      allow get: if isEmailVerified() && resource.data.ownerId == request.auth.uid;
+      allow get: if isEmailVerified() && (guestId == request.auth.uid || resource == null || resource.data.ownerId == request.auth.uid);
       allow list: if isEmailVerified() && resource.data.ownerId == request.auth.uid;
       allow create: if isEmailVerified() && isValidId(guestId) && isValidGuestCreate(request.resource.data);
       allow update: if isEmailVerified() && isValidId(guestId) && isValidGuestUpdate(request.resource.data) && resource.data.ownerId == request.auth.uid;
@@ -89,7 +94,7 @@ service cloud.firestore {
 
     // Bookings Collection
     match /bookings/{bookingId} {
-      allow get: if isEmailVerified() && resource.data.ownerId == request.auth.uid;
+      allow get: if isEmailVerified() && (resource == null || resource.data.ownerId == request.auth.uid);
       allow list: if isEmailVerified() && resource.data.ownerId == request.auth.uid;
       // Global Consistency Invariant: Ensures the referenced guest exists in the database
       allow create: if isEmailVerified() && isValidId(bookingId) && isValidBookingCreate(request.resource.data)

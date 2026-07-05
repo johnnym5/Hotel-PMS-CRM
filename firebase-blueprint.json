@@ -1,5 +1,27 @@
 {
   "entities": {
+    "user": {
+      "title": "User",
+      "description": "User account registration details and role information",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["staff", "client"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "email", "role", "createdAt"]
+    },
     "guest": {
       "title": "Guest",
       "description": "A guest profile at the inn",
@@ -90,6 +112,10 @@
     }
   },
   "firestore": {
+    "users": {
+      "schema": "user",
+      "description": "Registered application users"
+    },
     "guests": {
       "schema": "guest",
       "description": "Collection of guest records"
