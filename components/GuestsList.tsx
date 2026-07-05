@@ -294,7 +294,7 @@ export default function GuestsList({ onSelectGuest, selectedGuestId }: GuestsLis
                     )}
                   </div>
                   {guest.notes && (
-                    <p className="text-[10px] text-slate-400 truncate italic">"{guest.notes}"</p>
+                    <p className="text-[10px] text-slate-400 truncate italic">&quot;{guest.notes}&quot;</p>
                   )}
                 </div>
                 <div className="flex items-center gap-1">

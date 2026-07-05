@@ -280,7 +280,7 @@ export default function CalendarTimeline({ onSelectGuest }: CalendarTimelineProp
         </span>
         <span className="ml-auto flex items-center gap-1 text-slate-400 italic">
           <Info className="w-3.5 h-3.5 text-slate-400" />
-          Click a reservation block to view guest's full file
+          Click a reservation block to view guest&apos;s full file
         </span>
       </div>
     </div>

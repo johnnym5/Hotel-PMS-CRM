@@ -505,7 +505,7 @@ export default function GuestProfile({ guestId, onClose }: GuestProfileProps) {
           <div className="space-y-3">
             {bookings.length === 0 ? (
               <div className="text-center py-6 text-xs text-slate-400 bg-slate-50/50 rounded-xl border border-slate-100">
-                No bookings registered for this guest. Click "Book Room" above to reserve.
+                No bookings registered for this guest. Click &quot;Book Room&quot; above to reserve.
               </div>
             ) : (
               bookings.map((booking) => (
@@ -538,7 +538,7 @@ export default function GuestProfile({ guestId, onClose }: GuestProfileProps) {
                       )}
                     </div>
                     {booking.notes && (
-                      <p className="text-[10px] text-slate-400 italic font-normal">"{booking.notes}"</p>
+                      <p className="text-[10px] text-slate-400 italic font-normal">&quot;{booking.notes}&quot;</p>
                     )}
                   </div>
 
