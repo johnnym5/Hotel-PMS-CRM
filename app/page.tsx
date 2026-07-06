@@ -27,10 +27,16 @@ import GuestsList from "../components/GuestsList";
 import GuestProfile from "../components/GuestProfile";
 import CalendarTimeline from "../components/CalendarTimeline";
 import ClientPortal from "../components/ClientPortal";
-import HousekeepingBoard from "../components/HousekeepingBoard";
+import Housekeeping from "../components/Housekeeping";
 import AdminSettings from "../components/AdminSettings";
 import Sidebar from "../components/Sidebar";
 import AdminCenter from "../components/AdminCenter";
+import StaffManagement from "../components/StaffManagement";
+import RoomManager from "../components/RoomManager";
+import NotificationBell from "../components/NotificationBell";
+import Settings from "../components/Settings";
+import ReportsDashboard from "../components/ReportsDashboard";
+import ShiftLogbook from "../components/ShiftLogbook";
 import { 
   LogIn, 
   LogOut, 
@@ -52,6 +58,15 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 
 const STAFF_PASSCODES = ["STAFF123", "INNKEEPER", "STAFF2026", "ADMIN"];
+
+export interface Room {
+  id: string;
+  roomNumber: string;
+  tier: "Standard" | "Deluxe" | "Executive" | string;
+  price: number;
+  status: "active" | "maintenance" | "dirty";
+  colorCode: string;
+}
 
 // Seed local storage with mock guests and reservations for a vibrant sandbox demo
 const ensureLocalSeedData = (staffUid: string) => {
@@ -128,6 +143,22 @@ const ensureLocalSeedData = (staffUid: string) => {
     ];
     localStorage.setItem("innsphere_sandbox_bookings", JSON.stringify(defaultBookings));
   }
+
+  if (!localStorage.getItem("innsphere_sandbox_rooms")) {
+    const defaultRooms: Room[] = [
+      { id: "room_101", roomNumber: "101", tier: "Standard", price: 20000, status: "active", colorCode: "bg-emerald-500" },
+      { id: "room_102", roomNumber: "102", tier: "Standard", price: 20000, status: "active", colorCode: "bg-emerald-500" },
+      { id: "room_103", roomNumber: "103", tier: "Standard", price: 20000, status: "active", colorCode: "bg-emerald-500" },
+      { id: "room_104", roomNumber: "104", tier: "Standard", price: 20000, status: "active", colorCode: "bg-emerald-500" },
+      { id: "room_201", roomNumber: "201", tier: "Deluxe", price: 35000, status: "active", colorCode: "bg-indigo-500" },
+      { id: "room_202", roomNumber: "202", tier: "Deluxe", price: 35000, status: "maintenance", colorCode: "bg-red-500" },
+      { id: "room_203", roomNumber: "203", tier: "Deluxe", price: 35000, status: "active", colorCode: "bg-indigo-500" },
+      { id: "room_301", roomNumber: "301", tier: "Executive", price: 50000, status: "active", colorCode: "bg-purple-500" },
+      { id: "room_302", roomNumber: "302", tier: "Executive", price: 50000, status: "active", colorCode: "bg-purple-500" },
+      { id: "room_303", roomNumber: "303", tier: "Executive", price: 50000, status: "active", colorCode: "bg-purple-500" }
+    ];
+    localStorage.setItem("innsphere_sandbox_rooms", JSON.stringify(defaultRooms));
+  }
 };
 
 export default function Home() {
@@ -148,6 +179,7 @@ export default function Home() {
   const [staffCode, setStaffCode] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [isAnonymousLogin, setIsAnonymousLogin] = useState(false);
 
   // Live Metrics (for Staff Dashboard)
   const [totalBookingsCount, setTotalBookingsCount] = useState(0);
@@ -156,7 +188,7 @@ export default function Home() {
   const [projectedRevenue, setProjectedRevenue] = useState(0);
 
   // Staff Dashboard Tabs
-  const [activeTab, setActiveTab] = useState<"frontdesk" | "housekeeping" | "settings">("frontdesk");
+  const [activeTab, setActiveTab] = useState<"frontdesk" | "rooms">("frontdesk");
 
   // Toast Notifications State
   const [toasts, setToasts] = useState<{ id: string; title: string; message: string; type: "success" | "info" }[]>([]);
@@ -276,6 +308,8 @@ export default function Home() {
           // Update known booking IDs
           knownBookingIdsRef.current = new Set(currentOwnerBookings.map(b => b.id));
 
+          const todayStr = new Date().toISOString().split('T')[0];
+
           currentOwnerBookings.forEach((data) => {
             bookingsCount++;
             revenueSum += Number(data.totalAmount) || 0;
@@ -284,6 +318,24 @@ export default function Home() {
               activeGuests++;
               if (data.roomNumber) {
                 occupiedRooms.add(data.roomNumber);
+              }
+              if (data.checkOut === todayStr && !isInitialLoadRef.current) {
+                addToast("Checkout Alert", `Booking for ${data.guestName} ends today!`, "info");
+                
+                // Save to local notifications
+                const rawNotifs = localStorage.getItem("innsphere_sandbox_notifications");
+                const allNotifs = rawNotifs ? JSON.parse(rawNotifs) : [];
+                allNotifs.push({
+                  id: "notif_checkout_" + Date.now(),
+                  recipientId: "staff_all",
+                  title: "Checkout Reminder",
+                  message: `Booking for ${data.guestName} ends today.`,
+                  type: "checkout",
+                  status: "unread",
+                  actionState: "seen"
+                });
+                localStorage.setItem("innsphere_sandbox_notifications", JSON.stringify(allNotifs));
+                window.dispatchEvent(new Event("innsphere_local_update"));
               }
             }
           });
@@ -348,6 +400,27 @@ export default function Home() {
         setTotalBookingsCount(bookingsCount);
         setActiveGuestsCount(activeGuests);
         setProjectedRevenue(revenueSum);
+
+        // Check for checkouts today (End of Stay Logic)
+        const todayStr = new Date().toISOString().split('T')[0];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data();
+          if (data.status === "checked_in" && data.checkOut === todayStr && !isInitialLoadRef.current) {
+            addToast("Checkout Alert", `Booking for ${data.guestName} ends today!`, "info");
+            
+            // Optionally write to DB notifications if not sandbox
+            const notifRef = doc(collection(db, "notifications"));
+            setDoc(notifRef, {
+              recipientId: "staff_all",
+              title: "Checkout Reminder",
+              message: `Booking for ${data.guestName} ends today.`,
+              type: "checkout",
+              status: "unread",
+              actionState: "seen",
+              createdAt: serverTimestamp()
+            }).catch(console.error);
+          }
+        });
 
         // We have 10 fixed rooms
         const rate = Math.round((occupiedRooms.size / 10) * 100);
@@ -414,6 +487,51 @@ export default function Home() {
       } else {
         setAuthError("Google Sign-In was interrupted or blocked. Please try Email & Password login below, or use the instant Local Sandbox Mode.");
       }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Handle Anonymous Login
+  const handleAnonymousLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    setSubmitting(true);
+
+    if (!fullName.trim()) {
+      setAuthError("Please provide your full name to continue.");
+      setSubmitting(false);
+      return;
+    }
+
+    try {
+      const result = await signInAnonymously(auth);
+      
+      const userDocRef = doc(db, "users", result.user.uid);
+      await setDoc(userDocRef, {
+        uid: result.user.uid,
+        email: `anonymous_${result.user.uid}@guest.local`,
+        role: "client",
+        isAnonymous: true,
+        createdAt: serverTimestamp()
+      });
+
+      const guestDocRef = doc(db, "guests", result.user.uid);
+      await setDoc(guestDocRef, {
+        name: fullName.trim(),
+        email: `anonymous_${result.user.uid}@guest.local`,
+        phone: "",
+        notes: "Anonymous guest session",
+        ownerId: result.user.uid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+
+      setUserRole("client");
+      setActiveView("book");
+    } catch (err: any) {
+      console.error(err);
+      setAuthError(err.message || "Anonymous login failed. Please try again.");
     } finally {
       setSubmitting(false);
     }
@@ -623,28 +741,31 @@ export default function Home() {
           )}
 
           {/* Toggle between Sign In / Sign Up */}
-          <div className="flex bg-slate-100 p-1 rounded-xl">
-            <button
-              onClick={() => { setIsSignUp(false); setAuthError(null); }}
-              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
-                !isSignUp ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-800"
-              }`}
-            >
-              Sign In
-            </button>
-            <button
-              onClick={() => { setIsSignUp(true); setAuthError(null); }}
-              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
-                isSignUp ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-800"
-              }`}
-            >
-              Create Account
-            </button>
-          </div>
+          {!isAnonymousLogin && (
+            <div className="flex bg-slate-100 p-1 rounded-xl">
+              <button
+                onClick={() => { setIsSignUp(false); setAuthError(null); }}
+                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
+                  !isSignUp ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                Sign In
+              </button>
+              <button
+                onClick={() => { setIsSignUp(true); setAuthError(null); }}
+                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
+                  isSignUp ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                Create Account
+              </button>
+            </div>
+          )}
 
-          <form onSubmit={handleEmailAuth} className="space-y-4">
-            
-            {/* If Sign Up, let them choose role and type name */}
+          {!isAnonymousLogin && (
+            <form onSubmit={handleEmailAuth} className="space-y-4">
+              
+              {/* If Sign Up, let them choose role and type name */}
             {isSignUp && (
               <div className="space-y-4 border-b border-slate-100 pb-4">
                 <div className="space-y-2">
@@ -764,7 +885,43 @@ export default function Home() {
                 </>
               )}
             </button>
-          </form>
+            </form>
+          )}
+
+          {isAnonymousLogin && (
+            <form onSubmit={handleAnonymousLogin} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Full Name</label>
+                <input
+                  type="text"
+                  placeholder="Enter your full name"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-100 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white text-slate-800"
+                  required
+                />
+                <p className="text-[9px] text-slate-400 mt-1">We need your name to identify your booking.</p>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAnonymousLogin(false)}
+                  disabled={submitting}
+                  className="py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold uppercase tracking-wider rounded-xl transition-all"
+                >
+                  Back
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-xs font-bold uppercase tracking-wider rounded-xl transition-all shadow-md shadow-indigo-100 flex items-center justify-center gap-2"
+                >
+                  {submitting ? "Processing..." : "Start Booking"}
+                </button>
+              </div>
+            </form>
+          )}
 
           {/* Divider */}
           <div className="relative flex py-1 items-center">
@@ -793,14 +950,25 @@ export default function Home() {
             </button>
           </div>
 
-          {/* Google Login as Backup */}
-          <button
-            onClick={handleGoogleSignIn}
-            disabled={submitting}
-            className="w-full py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 text-[10px] font-bold uppercase tracking-wide rounded-xl transition-all flex items-center justify-center gap-2"
-          >
-            Sign In with Google Account
-          </button>
+          {/* Google & Anonymous Login as Backup */}
+          {!isAnonymousLogin && (
+            <div className="flex flex-col gap-2 mt-2">
+              <button
+                onClick={handleGoogleSignIn}
+                disabled={submitting}
+                className="w-full py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 text-[10px] font-bold uppercase tracking-wide rounded-xl transition-all flex items-center justify-center gap-2"
+              >
+                Sign In with Google Account
+              </button>
+              <button
+                onClick={() => setIsAnonymousLogin(true)}
+                disabled={submitting}
+                className="w-full py-2 bg-slate-800 hover:bg-slate-900 text-white text-[10px] font-bold uppercase tracking-wide rounded-xl transition-all flex items-center justify-center gap-2"
+              >
+                Continue as Guest
+              </button>
+            </div>
+          )}
         </motion.div>
       </div>
     );
@@ -819,15 +987,54 @@ export default function Home() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-y-auto relative">
+        <div className="absolute top-4 right-6 z-50">
+          <NotificationBell userRole={userRole} currentUserId={user?.uid || null} />
+        </div>
         {/* Admin Dashboard View */}
         {userRole === "admin" && activeView === "admin_dashboard" && (
           <AdminCenter />
         )}
 
+        {/* Admin Manage Staff View */}
+        {userRole === "admin" && activeView === "staff_management" && (
+          <StaffManagement />
+        )}
+
+        {/* Admin Manage Rooms View */}
+        {userRole === "admin" && activeView === "rooms_management" && (
+          <div className="p-6 max-w-7xl w-full mx-auto h-[800px]">
+            <RoomManager />
+          </div>
+        )}
+
+        {/* Admin System Settings View */}
+        {userRole === "admin" && activeView === "system_settings" && (
+          <div className="p-6 max-w-7xl w-full mx-auto">
+            <AdminSettings />
+          </div>
+        )}
+
+        {/* Staff Housekeeping View */}
+        {userRole === "staff" && activeView === "housekeeping" && (
+          <div className="p-6 max-w-7xl w-full mx-auto">
+            <Housekeeping />
+          </div>
+        )}
+
+        {/* Analytics & Reports View (Staff + Admin) */}
+        {(userRole === "staff" || userRole === "admin") && activeView === "analytics" && (
+          <div className="p-6 max-w-7xl w-full mx-auto">
+            <ReportsDashboard />
+          </div>
+        )}
+
         {/* Staff Cockpit Dashboard View */}
         {userRole === "staff" && activeView === "cockpit" && (
           <div className="p-6 max-w-7xl w-full mx-auto space-y-6">
+
+            {/* Shift Logbook - first thing staff sees */}
+            <ShiftLogbook />
             
             {/* Dashboard Metrics Bar */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4" id="metrics-dashboard-bar">
@@ -883,16 +1090,10 @@ export default function Home() {
                 Front Desk
               </button>
               <button
-                onClick={() => setActiveTab("housekeeping")}
-                className={`px-4 py-2 text-sm font-bold capitalize transition-colors border-b-2 ${activeTab === "housekeeping" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+                onClick={() => setActiveTab("rooms")}
+                className={`px-4 py-2 text-sm font-bold capitalize transition-colors border-b-2 ${activeTab === "rooms" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700"}`}
               >
-                Housekeeping
-              </button>
-              <button
-                onClick={() => setActiveTab("settings")}
-                className={`px-4 py-2 text-sm font-bold capitalize transition-colors border-b-2 ${activeTab === "settings" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700"}`}
-              >
-                Admin Settings
+                Room Management
               </button>
             </div>
 
@@ -943,23 +1144,13 @@ export default function Home() {
             </div>
             )}
 
-            {activeTab === "housekeeping" && (
+            {activeTab === "rooms" && (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="w-full"
+                className="w-full h-[600px]"
               >
-                <HousekeepingBoard />
-              </motion.div>
-            )}
-
-            {activeTab === "settings" && (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="w-full"
-              >
-                <AdminSettings />
+                <RoomManager />
               </motion.div>
             )}
 
@@ -996,6 +1187,7 @@ export default function Home() {
             }
           />
         )}
+        {activeView === "settings" && <Settings user={user} role={userRole} />}
       </main>
 
       {/* Real-time Toast Notifications */}

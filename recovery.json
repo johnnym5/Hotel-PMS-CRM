@@ -1,0 +1,13 @@
+{
+  "name": "replace_file_content",
+  "args": {
+    "AllowMultiple": false,
+    "Description": "Restore deleted lines from ClientPortal.tsx",
+    "EndLine": 866,
+    "Instruction": "Replace corrupted section with original + the fix",
+    "ReplacementContent": "                            {booking.notes && (\n                              <p className=\"text-[10px] text-slate-400 italic bg-white/70 px-2 py-1 rounded border border-slate-100 inline-block\">\n                                &quot;{booking.notes}&quot;\n                              </p>\n                            )}\n                          </div>\n                        </div>\n\n                        <div className=\"flex items-center justify-between md:justify-end gap-6 border-t md:border-none pt-3 md:pt-0 border-slate-100\">\n                          <div className=\"text-left md:text-right\">\n                            <span className=\"text-[9px] text-slate-400 font-bold uppercase tracking-wider block\">Total Amount</span>\n                            <span className=\"text-sm font-extrabold text-slate-800\">₦{(booking.totalAmount || 0).toLocaleString('en-NG')}</span>\n                          </div>\n\n                          <div className=\"flex flex-col gap-2\">\n                            {(!booking.paymentStatus || booking.paymentStatus === \"pending\") && booking.status !== \"cancelled\" && (\n                              <button\n                                onClick={() => { setSelectedBookingForPayment(booking); setShowPaymentModal(true); }}\n                                className=\"px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold uppercase tracking-wider rounded-lg transition-colors shadow-sm\"\n                              >\n                                Pay Now\n                              </button>\n                            )}",
+    "StartLine": 857,
+    "TargetContent": "                            {booking.notes && (\n                              <p className=\"text-[10px] text-slate-400 italic bg-white/70 px-2 py-1 rounded border border-slate-100 inline-block\">\n                                &quot;{booking.notes}&quot;\n                              </p>\n                            )}\n                                className=\"px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold uppercase tracking-wider rounded-lg transition-colors shadow-sm\"\n                              >\n                                Pay Now\n                              </button>\n                            )}",
+    "TargetFile": "c:\\Users\\HP\\Documents\\CODING\\Hotel-PMS-CRM\\components\\ClientPortal.tsx"
+  }
+}

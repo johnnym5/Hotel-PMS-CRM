@@ -3,9 +3,11 @@
 import React, { useState, useEffect } from "react";
 import { doc, getDoc, updateDoc, collection, query, where, orderBy, onSnapshot, addDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
 import { db, auth, handleFirestoreError, OperationType } from "../lib/firebase";
-import { User, Mail, Phone, MapPin, Calendar, Edit, Save, Plus, Trash2, X, AlertCircle, ShoppingBag, FileText, CheckCircle2, BedDouble, Printer } from "lucide-react";
+import { User, Mail, Phone, MapPin, Calendar, Edit, Save, Plus, Trash2, X, AlertCircle, ShoppingBag, FileText, CheckCircle2, BedDouble, Printer, Download } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { getReceiptHTML } from "./ReceiptTemplate";
+import { generatePDFReceipt } from "../lib/pdfUtils";
+import { format, differenceInDays, parseISO, startOfDay } from "date-fns";
 
 interface Guest {
   id: string;
@@ -24,8 +26,11 @@ interface Booking {
   checkIn: string;
   checkOut: string;
   status: string;
+  paymentStatus?: string;
   totalAmount: number;
   notes: string;
+  incidentals?: { id: string; description: string; amount: number; date: string }[];
+  groupId?: string;
 }
 
 interface GuestProfileProps {
@@ -48,15 +53,43 @@ export default function GuestProfile({ guestId, onClose }: GuestProfileProps) {
   const [notes, setNotes] = useState("");
 
   // Add Booking Form state
-  const [roomNumber, setRoomNumber] = useState("");
+  const [selectedRooms, setSelectedRooms] = useState<string[]>([]);
   const [checkIn, setCheckIn] = useState("");
   const [checkOut, setCheckOut] = useState("");
   const [totalAmount, setTotalAmount] = useState("");
   const [bookingNotes, setBookingNotes] = useState("");
   const [status, setStatus] = useState("confirmed");
 
+  // Folio / Incidentals state
+  const [folioBookingId, setFolioBookingId] = useState<string | null>(null);
+  const [incDescription, setIncDescription] = useState("");
+  const [incAmount, setIncAmount] = useState("");
+
+  // Available rooms for multi-select
+  const [availableRooms, setAvailableRooms] = useState<any[]>([]);
+
   const isSandbox = !auth.currentUser || (typeof window !== "undefined" && localStorage.getItem("innsphere_sandbox_mode") === "true");
   const currentUserId = auth.currentUser?.uid || (typeof window !== "undefined" ? localStorage.getItem("innsphere_sandbox_user_id") : null) || "sandbox_user";
+
+  // Load available rooms
+  useEffect(() => {
+    if (isSandbox) {
+      const loadRooms = () => {
+        const raw = localStorage.getItem("innsphere_sandbox_rooms");
+        setAvailableRooms(raw ? JSON.parse(raw) : []);
+      };
+      loadRooms();
+      const handler = () => loadRooms();
+      window.addEventListener("innsphere_local_update", handler);
+      return () => window.removeEventListener("innsphere_local_update", handler);
+    } else {
+      if (!auth.currentUser) return;
+      const unsub = onSnapshot(collection(db, "rooms"), (snapshot) => {
+        setAvailableRooms(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+      });
+      return () => unsub();
+    }
+  }, [isSandbox]);
 
   // Load Guest Details and Bookings
   useEffect(() => {
@@ -173,6 +206,7 @@ export default function GuestProfile({ guestId, onClose }: GuestProfileProps) {
               checkIn: data.checkIn || "",
               checkOut: data.checkOut || "",
               status: data.status || "confirmed",
+              paymentStatus: data.paymentStatus || "paid",
               totalAmount: Number(data.totalAmount) || 0,
               notes: data.notes || "",
             });
@@ -194,7 +228,7 @@ export default function GuestProfile({ guestId, onClose }: GuestProfileProps) {
         unsubBookings();
       };
     }
-  }, [guestId, auth.currentUser, isSandbox]);
+  }, [guestId, isSandbox]);
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -253,33 +287,41 @@ export default function GuestProfile({ guestId, onClose }: GuestProfileProps) {
   const handleAddBooking = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!guest) return;
-    if (!roomNumber.trim() || !checkIn || !checkOut) {
-      setError("Room, Check-in, and Check-out are required.");
+    if (selectedRooms.length === 0 || !checkIn || !checkOut) {
+      setError("Room(s), Check-in, and Check-out are required.");
       return;
     }
 
+    const groupId = selectedRooms.length > 1 ? "group_" + Date.now() : undefined;
+
     if (isSandbox) {
       try {
-        const newBooking = {
-          id: "booking_" + Date.now(),
-          guestId: guest.id,
-          guestName: guest.name,
-          roomNumber: roomNumber.trim(),
-          checkIn,
-          checkOut,
-          status,
-          totalAmount: totalAmount ? Number(totalAmount) : 0,
-          notes: bookingNotes.trim() || "",
-          ownerId: currentUserId
-        };
         const rawBookings = localStorage.getItem("innsphere_sandbox_bookings");
         const allBookings: any[] = rawBookings ? JSON.parse(rawBookings) : [];
-        allBookings.push(newBooking);
+
+        for (const rm of selectedRooms) {
+          const roomData = availableRooms.find(r => r.roomNumber === rm);
+          const perRoomAmount = totalAmount ? Number(totalAmount) : (roomData?.price || 20000);
+          allBookings.push({
+            id: "booking_" + Date.now() + "_" + rm,
+            guestId: guest.id,
+            guestName: guest.name,
+            roomNumber: rm,
+            checkIn,
+            checkOut,
+            status,
+            paymentStatus: "paid",
+            totalAmount: perRoomAmount,
+            notes: bookingNotes.trim() || "",
+            ownerId: currentUserId,
+            incidentals: [],
+            groupId,
+          });
+        }
         localStorage.setItem("innsphere_sandbox_bookings", JSON.stringify(allBookings));
         window.dispatchEvent(new Event("innsphere_local_update"));
 
-        // Reset form
-        setRoomNumber("");
+        setSelectedRooms([]);
         setCheckIn("");
         setCheckOut("");
         setTotalAmount("");
@@ -294,25 +336,30 @@ export default function GuestProfile({ guestId, onClose }: GuestProfileProps) {
     }
 
     if (!auth.currentUser) return;
-    const path = "bookings";
     try {
       setError(null);
-      await addDoc(collection(db, path), {
-        guestId: guest.id,
-        guestName: guest.name,
-        roomNumber: roomNumber.trim(),
-        checkIn,
-        checkOut,
-        status,
-        totalAmount: totalAmount ? Number(totalAmount) : 0,
-        notes: bookingNotes.trim() || null,
-        ownerId: auth.currentUser.uid,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
+      for (const rm of selectedRooms) {
+        const roomData = availableRooms.find(r => r.roomNumber === rm);
+        const perRoomAmount = totalAmount ? Number(totalAmount) : (roomData?.price || 20000);
+        await addDoc(collection(db, "bookings"), {
+          guestId: guest.id,
+          guestName: guest.name,
+          roomNumber: rm,
+          checkIn,
+          checkOut,
+          status,
+          paymentStatus: "paid",
+          totalAmount: perRoomAmount,
+          notes: bookingNotes.trim() || null,
+          ownerId: auth.currentUser.uid,
+          incidentals: [],
+          groupId: groupId || null,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
 
-      // Reset form
-      setRoomNumber("");
+      setSelectedRooms([]);
       setCheckIn("");
       setCheckOut("");
       setTotalAmount("");
@@ -321,7 +368,7 @@ export default function GuestProfile({ guestId, onClose }: GuestProfileProps) {
       setIsAddingBooking(false);
     } catch (err) {
       try {
-        handleFirestoreError(err, OperationType.CREATE, path);
+        handleFirestoreError(err, OperationType.CREATE, "bookings");
       } catch (wrappedError: any) {
         setError("Permission Denied: Ensure all fields conform and you have write clearance.");
       }
@@ -357,12 +404,78 @@ export default function GuestProfile({ guestId, onClose }: GuestProfileProps) {
   };
 
   const handlePrintReceipt = (booking: Booking) => {
-    const html = getReceiptHTML(booking.guestName, booking.roomNumber, booking.checkIn, booking.checkOut, booking.totalAmount || 0);
+    const html = getReceiptHTML(booking.guestName, booking.roomNumber, booking.checkIn, booking.checkOut, booking.totalAmount || 0, booking.incidentals);
     const printWindow = window.open('', '_blank');
     if (printWindow) {
       printWindow.document.write(html);
       printWindow.document.close();
     }
+  };
+
+  const handleDownloadPDF = async (booking: Booking) => {
+    try {
+      const html = getReceiptHTML(booking.guestName, booking.roomNumber, booking.checkIn, booking.checkOut, booking.totalAmount || 0, booking.incidentals);
+      const tempDiv = document.createElement("div");
+      tempDiv.id = "temp-receipt-" + booking.id;
+      tempDiv.innerHTML = html;
+      document.body.appendChild(tempDiv);
+      await generatePDFReceipt(tempDiv.id, `Receipt_${booking.roomNumber}_${booking.checkIn}.pdf`);
+      document.body.removeChild(tempDiv);
+    } catch (e) {
+      console.error(e);
+      setError("Failed to generate PDF.");
+    }
+  };
+
+  const handleAddIncidental = async (bookingId: string) => {
+    if (!incDescription.trim() || !incAmount) {
+      setError("Description and amount are required for incidentals.");
+      return;
+    }
+
+    const newInc = {
+      id: "inc_" + Date.now(),
+      description: incDescription.trim(),
+      amount: Number(incAmount),
+      date: format(new Date(), "yyyy-MM-dd"),
+    };
+
+    if (isSandbox) {
+      try {
+        const rawBookings = localStorage.getItem("innsphere_sandbox_bookings");
+        const allBookings: any[] = rawBookings ? JSON.parse(rawBookings) : [];
+        const updated = allBookings.map(b => {
+          if (b.id === bookingId) {
+            const incs = [...(b.incidentals || []), newInc];
+            const incTotal = incs.reduce((sum: number, i: any) => sum + i.amount, 0);
+            return { ...b, incidentals: incs, totalAmount: (b.totalAmount - (b.incidentals || []).reduce((s: number, i: any) => s + i.amount, 0)) + incTotal };
+          }
+          return b;
+        });
+        localStorage.setItem("innsphere_sandbox_bookings", JSON.stringify(updated));
+        window.dispatchEvent(new Event("innsphere_local_update"));
+      } catch (err) {
+        setError("Failed to add incidental.");
+      }
+    } else {
+      try {
+        const booking = bookings.find(b => b.id === bookingId);
+        if (!booking) return;
+        const incs = [...(booking.incidentals || []), newInc];
+        const incTotal = incs.reduce((sum, i) => sum + i.amount, 0);
+        const baseAmount = booking.totalAmount - (booking.incidentals || []).reduce((s, i) => s + i.amount, 0);
+        await updateDoc(doc(db, "bookings", bookingId), {
+          incidentals: incs,
+          totalAmount: baseAmount + incTotal,
+          updatedAt: serverTimestamp(),
+        });
+      } catch (err) {
+        setError("Failed to add incidental.");
+      }
+    }
+
+    setIncDescription("");
+    setIncAmount("");
   };
 
   const handleUpdateBookingStatus = async (bookingId: string, newStatus: string) => {
@@ -582,16 +695,44 @@ export default function GuestProfile({ guestId, onClose }: GuestProfileProps) {
                 id="form-add-booking"
               >
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-[10px] uppercase font-bold text-slate-500 mb-1">Room # *</label>
-                    <input
-                      type="text"
-                      required
-                      value={roomNumber}
-                      onChange={(e) => setRoomNumber(e.target.value)}
-                      placeholder="e.g. 101, 204"
-                      className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
-                    />
+                <div>
+                    <label className="block text-[10px] uppercase font-bold text-slate-500 mb-1">Room(s) *</label>
+                    {availableRooms.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {availableRooms.filter(r => r.status === "active").map((room: any) => (
+                          <button
+                            key={room.roomNumber}
+                            type="button"
+                            onClick={() => {
+                              setSelectedRooms(prev =>
+                                prev.includes(room.roomNumber)
+                                  ? prev.filter(r => r !== room.roomNumber)
+                                  : [...prev, room.roomNumber]
+                              );
+                            }}
+                            className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${
+                              selectedRooms.includes(room.roomNumber)
+                                ? "bg-indigo-600 text-white border-indigo-600"
+                                : "bg-white text-slate-600 border-slate-200 hover:border-indigo-300"
+                            }`}
+                          >
+                            {room.roomNumber}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <input
+                        type="text"
+                        required
+                        value={selectedRooms.join(", ")}
+                        onChange={(e) => setSelectedRooms(e.target.value.split(",").map(s => s.trim()).filter(Boolean))}
+                        placeholder="e.g. 101, 204"
+                        className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+                      />
+                    )}
+                    {selectedRooms.length > 1 && (
+                      <p className="text-[9px] text-indigo-600 font-semibold mt-1">Group booking: {selectedRooms.length} rooms selected</p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-[10px] uppercase font-bold text-slate-500 mb-1">Total Amount (₦)</label>
@@ -666,14 +807,15 @@ export default function GuestProfile({ guestId, onClose }: GuestProfileProps) {
                 No bookings registered for this guest. Click &quot;Book Room&quot; above to reserve.
               </div>
             ) : (
-              bookings.map((booking) => (
+            bookings.map((booking) => (
                 <div
                   key={booking.id}
-                  className="bg-white border border-slate-100 rounded-xl p-4 space-y-3 shadow-sm hover:border-slate-200 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4"
+                  className={`bg-white border rounded-xl p-4 space-y-3 shadow-sm hover:border-slate-200 transition-all ${booking.groupId ? "border-l-4 border-l-violet-400 border-slate-100" : "border-slate-100"}`}
                   id={`booking-card-${booking.id}`}
                 >
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div className="space-y-2">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="px-2 py-0.5 bg-slate-100 border border-slate-200 rounded font-semibold text-[10px] text-slate-700">
                         Room {booking.roomNumber}
                       </span>
@@ -685,14 +827,31 @@ export default function GuestProfile({ guestId, onClose }: GuestProfileProps) {
                       }`}>
                         {booking.status.replace("_", " ")}
                       </span>
+                      {booking.groupId && (
+                        <span className="text-[9px] px-2 py-0.5 rounded-full font-bold bg-violet-50 text-violet-600 border border-violet-100 uppercase">
+                          Group
+                        </span>
+                      )}
+                      {booking.paymentStatus === "pending" && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-red-50 text-red-600 border border-red-100 uppercase">
+                          Pending Payment
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-3 text-xs font-medium text-slate-600">
                       <span className="flex items-center gap-1 text-[11px]">
                         <Calendar className="w-3.5 h-3.5 text-slate-400" />
                         {booking.checkIn} to {booking.checkOut}
                       </span>
+                      {booking.status === "checked_in" && (
+                        <span className={`text-[11px] font-bold ${
+                          differenceInDays(parseISO(booking.checkOut), startOfDay(new Date())) <= 0 ? "text-red-600" : "text-indigo-600"
+                        }`}>
+                          Days Left: {Math.max(0, differenceInDays(parseISO(booking.checkOut), startOfDay(new Date())))}
+                        </span>
+                      )}
                       {booking.totalAmount > 0 && (
-                        <span className="font-semibold text-indigo-600 text-[11px]">₦{booking.totalAmount.toLocaleString('en-NG')} Total</span>
+                        <span className="font-semibold text-emerald-600 text-[11px]">₦{booking.totalAmount.toLocaleString('en-NG')} Total</span>
                       )}
                     </div>
                     {booking.notes && (
@@ -720,6 +879,17 @@ export default function GuestProfile({ guestId, onClose }: GuestProfileProps) {
                             Check Out
                           </button>
                         )}
+                        <button
+                          onClick={() => setFolioBookingId(folioBookingId === booking.id ? null : booking.id)}
+                          className={`px-2.5 py-1 text-[10px] font-bold rounded-lg transition-colors ${
+                            folioBookingId === booking.id
+                              ? "text-violet-700 bg-violet-100"
+                              : "text-violet-600 bg-violet-50 hover:bg-violet-100"
+                          }`}
+                        >
+                          <ShoppingBag className="w-3 h-3 inline mr-1" />
+                          Folio
+                        </button>
                       </>
                     )}
                     <button
@@ -729,6 +899,15 @@ export default function GuestProfile({ guestId, onClose }: GuestProfileProps) {
                     >
                       <Printer className="w-3.5 h-3.5" />
                     </button>
+                    {(booking.paymentStatus === "paid" || !booking.paymentStatus) && (
+                      <button
+                        onClick={() => handleDownloadPDF(booking)}
+                        className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors md:ml-0"
+                        title="Download PDF Receipt"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                     <button
                       onClick={() => handleDeleteBooking(booking.id)}
                       className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors ml-auto md:ml-0"
@@ -737,6 +916,68 @@ export default function GuestProfile({ guestId, onClose }: GuestProfileProps) {
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
+                  </div>
+
+                  {/* Folio / Incidentals Expandable Section */}
+                  <AnimatePresence>
+                    {folioBookingId === booking.id && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="overflow-hidden border-t border-slate-100 pt-3 mt-2"
+                      >
+                        <h4 className="text-[10px] font-bold text-violet-700 uppercase tracking-wider mb-2 flex items-center gap-1">
+                          <ShoppingBag className="w-3 h-3" /> Incidentals / Extra Charges
+                        </h4>
+
+                        {/* Existing incidentals */}
+                        {(booking.incidentals && booking.incidentals.length > 0) ? (
+                          <div className="space-y-1 mb-3">
+                            {booking.incidentals.map((inc) => (
+                              <div key={inc.id} className="flex items-center justify-between text-[10px] bg-slate-50 rounded-lg px-3 py-1.5 border border-slate-100">
+                                <span className="text-slate-600">{inc.description} <span className="text-slate-400">({inc.date})</span></span>
+                                <span className="font-bold text-slate-700">₦{inc.amount.toLocaleString('en-NG')}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-[10px] text-slate-400 mb-3">No incidentals added yet.</p>
+                        )}
+
+                        {/* Add new incidental form */}
+                        <div className="flex items-end gap-2">
+                          <div className="flex-1">
+                            <label className="block text-[9px] uppercase font-bold text-slate-400 mb-1">Description</label>
+                            <input
+                              type="text"
+                              value={incDescription}
+                              onChange={(e) => setIncDescription(e.target.value)}
+                              placeholder="Room Service, Laundry..."
+                              className="w-full px-2.5 py-1.5 text-[10px] border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-violet-500 bg-white"
+                            />
+                          </div>
+                          <div className="w-28">
+                            <label className="block text-[9px] uppercase font-bold text-slate-400 mb-1">Amount (₦)</label>
+                            <input
+                              type="number"
+                              value={incAmount}
+                              onChange={(e) => setIncAmount(e.target.value)}
+                              placeholder="5000"
+                              className="w-full px-2.5 py-1.5 text-[10px] border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-violet-500 bg-white"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleAddIncidental(booking.id)}
+                            className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-[10px] font-bold rounded-lg transition-colors shrink-0"
+                          >
+                            Add
+                          </button>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               ))
             )}

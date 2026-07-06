@@ -106,7 +106,7 @@ export default function GuestsList({ onSelectGuest, selectedGuestId }: GuestsLis
 
       return () => unsubscribe();
     }
-  }, [auth.currentUser, currentUserId, isSandbox]);
+  }, [currentUserId, isSandbox]);
 
   const handleAddGuest = async (e: React.FormEvent) => {
     e.preventDefault();

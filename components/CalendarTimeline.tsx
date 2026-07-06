@@ -3,8 +3,9 @@
 import React, { useState, useEffect } from "react";
 import { collection, query, where, orderBy, onSnapshot } from "firebase/firestore";
 import { db, auth, handleFirestoreError, OperationType } from "../lib/firebase";
-import { ChevronLeft, ChevronRight, Calendar, User, Eye, Info, Clock, Check, RefreshCw } from "lucide-react";
+import { ChevronLeft, ChevronRight, Calendar, User, Eye, Info, Clock, Check, RefreshCw, AlertCircle } from "lucide-react";
 import { format, addDays, subDays, startOfDay, isWithinInterval, parseISO, differenceInDays } from "date-fns";
+import { Room } from "../app/page";
 
 interface Booking {
   id: string;
@@ -22,11 +23,9 @@ interface CalendarTimelineProps {
   onSelectGuest: (guestId: string) => void;
 }
 
-const FALLBACK_ROOMS = ["101", "102", "103", "104", "105", "201", "202", "203", "204", "205"];
-
 export default function CalendarTimeline({ onSelectGuest }: CalendarTimelineProps) {
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const [rooms, setRooms] = useState<string[]>(FALLBACK_ROOMS);
+  const [rooms, setRooms] = useState<Room[]>([]);
   const [startDate, setStartDate] = useState<Date>(startOfDay(new Date()));
   const [loading, setLoading] = useState(true);
 
@@ -37,18 +36,33 @@ export default function CalendarTimeline({ onSelectGuest }: CalendarTimelineProp
   const days = Array.from({ length: 14 }, (_, i) => addDays(startDate, i));
 
   useEffect(() => {
-    // Dynamic Rooms Fetching
     if (!isSandbox && auth.currentUser) {
       const q = query(collection(db, "rooms"), where("ownerId", "==", auth.currentUser.uid));
       const unsubRooms = onSnapshot(q, (snapshot) => {
         if (!snapshot.empty) {
-          const fetchedRooms = snapshot.docs.map(d => d.data().roomNumber);
-          setRooms(fetchedRooms.sort());
+          const fetchedRooms = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Room));
+          fetchedRooms.sort((a, b) => {
+            if (a.tier !== b.tier) return (a.tier || "").localeCompare(b.tier || "");
+            return a.roomNumber.localeCompare(b.roomNumber);
+          });
+          setRooms(fetchedRooms);
         } else {
-          setRooms(FALLBACK_ROOMS);
+          setRooms([]);
         }
       });
-      // Not saving unsubRooms for simplicity, or we could.
+      return () => unsubRooms();
+    } else if (isSandbox) {
+      const loadRooms = () => {
+        const localRooms = JSON.parse(localStorage.getItem("innsphere_sandbox_rooms") || "[]");
+        localRooms.sort((a: Room, b: Room) => {
+          if (a.tier !== b.tier) return (a.tier || "").localeCompare(b.tier || "");
+          return a.roomNumber.localeCompare(b.roomNumber);
+        });
+        setRooms(localRooms);
+      };
+      loadRooms();
+      window.addEventListener("innsphere_local_update", loadRooms);
+      return () => window.removeEventListener("innsphere_local_update", loadRooms);
     }
   }, [isSandbox]);
 
@@ -129,7 +143,7 @@ export default function CalendarTimeline({ onSelectGuest }: CalendarTimelineProp
 
       return () => unsubscribe();
     }
-  }, [auth.currentUser, currentUserId, isSandbox]);
+  }, [currentUserId, isSandbox]);
 
   const handlePrevDays = () => {
     setStartDate(subDays(startDate, 7));
@@ -194,12 +208,22 @@ export default function CalendarTimeline({ onSelectGuest }: CalendarTimelineProp
                 Room
               </div>
               {days.map((day, idx) => {
-                const isTodayStr = format(day, "yyyy-MM-dd") === format(new Date(), "yyyy-MM-dd");
+                const dayStr = format(day, "yyyy-MM-dd");
+                const isTodayStr = dayStr === format(new Date(), "yyyy-MM-dd");
+                
+                const occupancyCount = bookings.filter(b => 
+                  b.status !== "cancelled" && 
+                  b.status !== "checked_out" &&
+                  dayStr >= b.checkIn && 
+                  dayStr < b.checkOut
+                ).length;
+
                 return (
                   <div
                     key={idx}
-                    className={`p-2.5 text-center flex flex-col items-center justify-center border-r border-slate-100 last:border-0 ${
-                      isTodayStr ? "bg-indigo-50/50" : ""
+                    title={`Occupancy: ${occupancyCount} active reservation(s)`}
+                    className={`p-2.5 text-center flex flex-col items-center justify-center border-r border-slate-100 last:border-0 cursor-help ${
+                      isTodayStr ? "bg-indigo-50/50" : "hover:bg-slate-100"
                     }`}
                   >
                     <span className="text-[10px] uppercase font-bold text-slate-400">
@@ -220,12 +244,21 @@ export default function CalendarTimeline({ onSelectGuest }: CalendarTimelineProp
 
             {/* Room Rows & Timeline Allocations */}
             <div className="divide-y divide-slate-100 border border-slate-100 rounded-b-xl overflow-hidden bg-white">
-              {rooms.map((roomNum) => {
+              {rooms.map((room) => {
+                const isMaintenance = room.status === "maintenance";
                 return (
-                  <div key={roomNum} className="grid grid-cols-[100px_repeat(14,1fr)] h-16 relative">
+                  <div key={room.id || room.roomNumber} className="grid grid-cols-[100px_repeat(14,1fr)] h-16 relative">
                     {/* Room Cell */}
-                    <div className="p-3 bg-slate-50/40 border-r border-slate-100 flex items-center justify-center font-bold text-xs text-slate-700 uppercase tracking-wider">
-                      Room {roomNum}
+                    <div className="p-2 bg-slate-50/40 border-r border-slate-100 flex flex-col items-center justify-center font-bold text-[10px] text-slate-700 uppercase tracking-wider relative">
+                      <div className="flex items-center gap-1.5 w-full justify-center">
+                        <div className={`w-2 h-2 rounded-full ${room.colorCode || "bg-emerald-500"}`} title={room.tier} />
+                        <span className="text-xs">{room.roomNumber}</span>
+                      </div>
+                      {isMaintenance && (
+                        <div className="mt-1 flex items-center gap-0.5 text-red-500 font-semibold" title="Maintenance">
+                          <AlertCircle className="w-3 h-3" />
+                        </div>
+                      )}
                     </div>
 
                     {/* Timeline Days Grid lines */}
@@ -238,7 +271,7 @@ export default function CalendarTimeline({ onSelectGuest }: CalendarTimelineProp
 
                     {/* Spanning Booking bars absolutely overlayed inside this row */}
                     {bookings
-                      .filter((booking) => booking.roomNumber === roomNum)
+                      .filter((booking) => booking.roomNumber === room.roomNumber)
                       .map((booking) => {
                         // Math to check if booking overlaps with this 14-day window
                         const bookingCheckIn = parseISO(booking.checkIn);

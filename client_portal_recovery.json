@@ -1,0 +1,122 @@
+[
+  {
+    "name": "multi_replace_file_content",
+    "args": {
+      "Description": "Client portal changes for manual payment flow and PDF generation",
+      "Instruction": "Add paymentStatus to Booking interface. Import generatePDFReceipt and getReceiptHTML. Add state for bank details, modal, and paymentStatus updates. Update the book logic to set paymentStatus to pending. Update the booking cards to show Pay Now, waiting, or Download PDF Receipt.",
+      "ReplacementChunks": [
+        {
+          "AllowMultiple": false,
+          "EndLine": 9,
+          "ReplacementContent": "import { getReceiptHTML } from \"./ReceiptTemplate\";\nimport { generatePDFReceipt } from \"../lib/pdfUtils\";\nimport { \n  Calendar as CalendarIcon, \n  BedDouble, \n  User, ",
+          "StartLine": 6,
+          "TargetContent": "import { \n  Calendar as CalendarIcon, \n  BedDouble, \n  User, "
+        },
+        {
+          "AllowMultiple": false,
+          "EndLine": 43,
+          "ReplacementContent": "  checkIn: string;\n  checkOut: string;\n  status: string;\n  paymentStatus?: string;\n  totalAmount: number;\n  notes: string;",
+          "StartLine": 38,
+          "TargetContent": "  checkIn: string;\n  checkOut: string;\n  status: string;\n  totalAmount: number;\n  notes: string;"
+        },
+        {
+          "AllowMultiple": false,
+          "EndLine": 81,
+          "ReplacementContent": "  const [specialNotes, setSpecialNotes] = useState(\"\");\n\n  // Payment Flow State\n  const [showPaymentModal, setShowPaymentModal] = useState(false);\n  const [selectedBookingForPayment, setSelectedBookingForPayment] = useState<Booking | null>(null);\n  const [bankDetails, setBankDetails] = useState({ bankName: \"\", accountNumber: \"\", accountName: \"\" });\n  const [paymentActionLoading, setPaymentActionLoading] = useState(false);\n\n  const isSandbox = user?.uid?.startsWith(\"sandbox_\") || (typeof window !== \"undefined\" && localStorage.getItem(\"innsphere_sandbox_mode\") === \"true\");",
+          "StartLine": 80,
+          "TargetContent": "  const [specialNotes, setSpecialNotes] = useState(\"\");\n\n  const isSandbox = user?.uid?.startsWith(\"sandbox_\") || (typeof window !== \"undefined\" && localStorage.getItem(\"innsphere_sandbox_mode\") === \"true\");"
+        },
+        {
+          "AllowMultiple": false,
+          "EndLine": 141,
+          "ReplacementContent": "          // Setup bookings\n          const rawBookings = localStorage.getItem(\"innsphere_sandbox_bookings\");\n          const allBookings: Booking[] = rawBookings ? JSON.parse(rawBookings) : [];\n          const myBookings = allBookings.filter(b => b.guestId === user.uid || b.ownerId === user.uid);\n          myBookings.sort((a, b) => b.checkIn.localeCompare(a.checkIn));\n          setBookings(myBookings);\n          setLoadingBookings(false);\n\n          // Setup Bank Details\n          const localSettings = JSON.parse(localStorage.getItem(\"innsphere_sandbox_settings\") || \"{}\");\n          if (localSettings.paymentDetails) {\n            setBankDetails(localSettings.paymentDetails);\n          }\n        } catch (e) {",
+          "StartLine": 139,
+          "TargetContent": "          // Setup bookings\n          const rawBookings = localStorage.getItem(\"innsphere_sandbox_bookings\");\n          const allBookings: Booking[] = rawBookings ? JSON.parse(rawBookings) : [];\n          const myBookings = allBookings.filter(b => b.guestId === user.uid || b.ownerId === user.uid);\n          myBookings.sort((a, b) => b.checkIn.localeCompare(a.checkIn));\n          setBookings(myBookings);\n          setLoadingBookings(false);\n        } catch (e) {"
+        },
+        {
+          "AllowMultiple": false,
+          "EndLine": 180,
+          "ReplacementContent": "                checkIn: pending.checkIn,\n                checkOut: pending.checkOut,\n                status: \"confirmed\",\n                paymentStatus: \"paid\",\n                totalAmount: pending.totalAmount,",
+          "StartLine": 176,
+          "TargetContent": "                checkIn: pending.checkIn,\n                checkOut: pending.checkOut,\n                status: \"confirmed\",\n                totalAmount: pending.totalAmount,"
+        },
+        {
+          "AllowMultiple": false,
+          "EndLine": 232,
+          "ReplacementContent": "      initProfile();\n\n      // Fetch Bank Details\n      const initBankDetails = async () => {\n        try {\n          const snap = await getDoc(doc(db, \"settings\", \"global\"));\n          if (snap.exists() && snap.data().paymentDetails) {\n            setBankDetails(snap.data().paymentDetails);\n          }\n        } catch (err) {\n          console.error(\"Error fetching bank details\", err);\n        }\n      };\n      initBankDetails();\n\n      // 2. Stream user bookings",
+          "StartLine": 231,
+          "TargetContent": "      initProfile();\n\n      // 2. Stream user bookings"
+        },
+        {
+          "AllowMultiple": false,
+          "EndLine": 252,
+          "ReplacementContent": "              checkIn: data.checkIn || \"\",\n              checkOut: data.checkOut || \"\",\n              status: data.status || \"confirmed\",\n              paymentStatus: data.paymentStatus || \"paid\",\n              totalAmount: Number(data.totalAmount) || 0,",
+          "StartLine": 248,
+          "TargetContent": "              checkIn: data.checkIn || \"\",\n              checkOut: data.checkOut || \"\",\n              status: data.status || \"confirmed\",\n              totalAmount: Number(data.totalAmount) || 0,"
+        },
+        {
+          "AllowMultiple": false,
+          "EndLine": 362,
+          "ReplacementContent": "          checkIn: checkIn,\n          checkOut: checkOut,\n          status: \"confirmed\",\n          paymentStatus: \"pending\",\n          totalAmount: totalAmount,",
+          "StartLine": 358,
+          "TargetContent": "          checkIn: checkIn,\n          checkOut: checkOut,\n          status: \"confirmed\",\n          totalAmount: totalAmount,"
+        },
+        {
+          "AllowMultiple": false,
+          "EndLine": 456,
+          "ReplacementContent": "  };\n\n  const handleDownloadPDF = async (booking: Booking) => {\n    try {\n      const html = getReceiptHTML(booking.guestName, booking.roomNumber, booking.checkIn, booking.checkOut, booking.totalAmount || 0);\n      const tempDiv = document.createElement(\"div\");\n      tempDiv.id = \"temp-receipt-\" + booking.id;\n      tempDiv.innerHTML = html;\n      document.body.appendChild(tempDiv);\n      await generatePDFReceipt(tempDiv.id, `Receipt_${booking.roomNumber}_${booking.checkIn}.pdf`);\n      document.body.removeChild(tempDiv);\n      setActionSuccess(\"PDF receipt downloaded.\");\n      setTimeout(() => setActionSuccess(null), 3000);\n    } catch (e) {\n      console.error(e);\n      setActionError(\"Failed to generate PDF.\");\n    }\n  };\n\n  const handleManualTransferSubmitted = async () => {\n    if (!selectedBookingForPayment) return;\n    setPaymentActionLoading(true);\n\n    try {\n      if (isSandbox) {\n        const rawBookings = localStorage.getItem(\"innsphere_sandbox_bookings\");\n        let allBookings = rawBookings ? JSON.parse(rawBookings) : [];\n        allBookings = allBookings.map((b: any) => \n          b.id === selectedBookingForPayment.id ? { ...b, paymentStatus: \"waiting\" } : b\n        );\n        localStorage.setItem(\"innsphere_sandbox_bookings\", JSON.stringify(allBookings));\n\n        const rawNotifs = localStorage.getItem(\"innsphere_sandbox_notifications\");\n        const allNotifs = rawNotifs ? JSON.parse(rawNotifs) : [];\n        allNotifs.push({\n          id: \"notif_payment_\" + Date.now(),\n          recipientId: \"staff_all\",\n          title: \"Payment Transferred\",\n          message: `Guest ${guestProfile.name} marked payment for Room ${selectedBookingForPayment.roomNumber} as transferred.|||${selectedBookingForPayment.id}`,\n          type: \"payment\",\n          status: \"unread\",\n          actionState: \"pending\"\n        });\n        localStorage.setItem(\"innsphere_sandbox_notifications\", JSON.stringify(allNotifs));\n        window.dispatchEvent(new Event(\"innsphere_local_update\"));\n      } else {\n        await updateDoc(doc(db, \"bookings\", selectedBookingForPayment.id), {\n          paymentStatus: \"waiting\",\n          updatedAt: serverTimestamp()\n        });\n\n        const notifRef = doc(collection(db, \"notifications\"));\n        await setDoc(notifRef, {\n          recipientId: \"staff_all\",\n          title: \"Payment Transferred\",\n          message: `Guest ${guestProfile.name} marked payment for Room ${selectedBookingForPayment.roomNumber} as transferred.|||${selectedBookingForPayment.id}`,\n          type: \"payment\",\n          status: \"unread\",\n          actionState: \"pending\",\n          createdAt: serverTimestamp()\n        });\n      }\n      setShowPaymentModal(false);\n      setActionSuccess(\"Payment marked as transferred. Awaiting staff confirmation.\");\n      setTimeout(() => setActionSuccess(null), 4000);\n    } catch (err) {\n      console.error(err);\n      setActionError(\"Failed to submit transfer notification.\");\n    } finally {\n      setPaymentActionLoading(false);\n    }\n  };\n\n  // Helper values for totals",
+          "StartLine": 455,
+          "TargetContent": "  };\n\n  // Helper values for totals"
+        },
+        {
+          "AllowMultiple": false,
+          "EndLine": 740,
+          "ReplacementContent": "                              <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${\n                                booking.status === \"confirmed\" ? \"bg-indigo-50 text-indigo-600\" :\n                                booking.status === \"checked_in\" ? \"bg-amber-50 text-amber-600 animate-pulse\" :\n                                booking.status === \"checked_out\" ? \"bg-slate-100 text-slate-500\" :\n                                \"bg-red-50 text-red-500\"\n                              }`}>\n                                {booking.status.replace(\"_\", \" \")}\n                              </span>\n                              <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider border ${\n                                booking.paymentStatus === \"paid\" ? \"border-emerald-200 bg-emerald-50 text-emerald-600\" :\n                                booking.paymentStatus === \"waiting\" ? \"border-amber-200 bg-amber-50 text-amber-600\" :\n                                \"border-red-200 bg-red-50 text-red-600\"\n                              }`}>\n                                {booking.paymentStatus === \"waiting\" ? \"Confirming Payment\" : booking.paymentStatus || \"pending\"}\n                              </span>\n                            </div>",
+          "StartLine": 732,
+          "TargetContent": "                              <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${\n                                booking.status === \"confirmed\" ? \"bg-indigo-50 text-indigo-600\" :\n                                booking.status === \"checked_in\" ? \"bg-amber-50 text-amber-600 animate-pulse\" :\n                                booking.status === \"checked_out\" ? \"bg-slate-100 text-slate-500\" :\n                                \"bg-red-50 text-red-500\"\n                              }`}>\n                                {booking.status.replace(\"_\", \" \")}\n                              </span>\n                            </div>"
+        },
+        {
+          "AllowMultiple": false,
+          "EndLine": 762,
+          "ReplacementContent": "                          <div className=\"text-left md:text-right\">\n                            <span className=\"text-[9px] text-slate-400 font-bold uppercase tracking-wider block\">Total Amount</span>\n                            <span className=\"text-sm font-extrabold text-slate-800\">₦{booking.totalAmount.toLocaleString('en-NG')}</span>\n                          </div>\n\n                          <div className=\"flex flex-col gap-2\">\n                            {(!booking.paymentStatus || booking.paymentStatus === \"pending\") && booking.status !== \"cancelled\" && (\n                              <button\n                                onClick={() => { setSelectedBookingForPayment(booking); setShowPaymentModal(true); }}\n                                className=\"px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold uppercase tracking-wider rounded-lg transition-colors shadow-sm\"\n                              >\n                                Pay Now\n                              </button>\n                            )}\n\n                            {booking.paymentStatus === \"paid\" && (\n                              <button\n                                onClick={() => handleDownloadPDF(booking)}\n                                className=\"px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-colors flex items-center gap-1.5\"\n                              >\n                                Download Receipt\n                              </button>\n                            )}\n\n                            {booking.status === \"confirmed\" && (\n                              <button\n                                onClick={() => handleCancelBooking(booking.id)}\n                                className=\"px-3 py-1.5 bg-white border border-red-100 hover:bg-red-50 text-red-600 hover:text-red-700 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-colors flex items-center justify-center gap-1.5\"\n                              >\n                                <Trash2 className=\"w-3.5 h-3.5\" />\n                                Cancel\n                              </button>\n                            )}\n                          </div>\n                        </div>",
+          "StartLine": 756,
+          "TargetContent": "                          <div className=\"text-left md:text-right\">\n                            <span className=\"text-[9px] text-slate-400 font-bold uppercase tracking-wider block\">Total Paid</span>\n                            <span className=\"text-sm font-extrabold text-slate-800\">₦{booking.totalAmount.toLocaleString('en-NG')}</span>\n                          </div>\n\n                          {booking.status === \"confirmed\" && (\n                            <button\n                              onClick={() => handleCancelBooking(booking.id)}\n                              className=\"px-3 py-1.5 bg-white border border-red-100 hover:bg-red-50 text-red-600 hover:text-red-700 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-colors flex items-center gap-1.5\"\n                            >\n                              <Trash2 className=\"w-3.5 h-3.5\" />\n                              Cancel\n                            </button>\n                          )}\n                        </div>"
+        },
+        {
+          "AllowMultiple": false,
+          "EndLine": 876,
+          "ReplacementContent": "            </motion.div>\n          )}\n\n          {/* Payment Modal */}\n          <AnimatePresence>\n            {showPaymentModal && selectedBookingForPayment && (\n              <div className=\"fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4\">\n                <motion.div\n                  initial={{ opacity: 0, scale: 0.95 }}\n                  animate={{ opacity: 1, scale: 1 }}\n                  exit={{ opacity: 0, scale: 0.95 }}\n                  className=\"bg-white rounded-3xl shadow-2xl p-6 w-full max-w-md relative\"\n                >\n                  <button onClick={() => setShowPaymentModal(false)} className=\"absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 rounded-full\">\n                    <X className=\"w-4 h-4\" />\n                  </button>\n                  <h3 className=\"text-lg font-bold text-slate-800 mb-2\">Complete Payment</h3>\n                  <p className=\"text-xs text-slate-500 mb-6\">Please transfer the total amount to the bank details below to confirm your booking.</p>\n                  \n                  <div className=\"bg-slate-50 border border-slate-100 rounded-xl p-4 space-y-3 mb-6 text-sm\">\n                    <div className=\"flex justify-between border-b border-slate-200 pb-2\">\n                      <span className=\"text-slate-500 font-bold\">Amount Due:</span>\n                      <span className=\"text-indigo-600 font-extrabold\">₦{selectedBookingForPayment.totalAmount.toLocaleString('en-NG')}</span>\n                    </div>\n                    <div>\n                      <span className=\"text-slate-400 text-xs block mb-1\">Bank Name:</span>\n                      <span className=\"text-slate-800 font-bold\">{bankDetails.bankName || \"Not Provided\"}</span>\n                    </div>\n                    <div>\n                      <span className=\"text-slate-400 text-xs block mb-1\">Account Number:</span>\n                      <span className=\"text-slate-800 font-bold font-mono tracking-wider\">{bankDetails.accountNumber || \"Not Provided\"}</span>\n                    </div>\n                    <div>\n                      <span className=\"text-slate-400 text-xs block mb-1\">Account Name:</span>\n                      <span className=\"text-slate-800 font-bold\">{bankDetails.accountName || \"Not Provided\"}</span>\n                    </div>\n                  </div>\n\n                  <button\n                    onClick={handleManualTransferSubmitted}\n                    disabled={paymentActionLoading}\n                    className=\"w-full py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl transition-all shadow shadow-indigo-200\"\n                  >\n                    {paymentActionLoading ? \"Processing...\" : \"I have transferred the funds\"}\n                  </button>\n                </motion.div>\n              </div>\n            )}\n          </AnimatePresence>\n\n        </div>\n      </main>\n    </div>\n  );\n}",
+          "StartLine": 874,
+          "TargetContent": "            </motion.div>\n          )}\n\n        </div>\n      </main>\n    </div>\n  );\n}"
+        }
+      ],
+      "TargetFile": "c:\\Users\\HP\\Documents\\CODING\\Hotel-PMS-CRM\\components\\ClientPortal.tsx"
+    }
+  },
+  {
+    "name": "replace_file_content",
+    "args": {
+      "AllowMultiple": false,
+      "Description": "Fix null totalAmount in ClientPortal",
+      "EndLine": 869,
+      "Instruction": "Use fallback for totalAmount.toLocaleString",
+      "ReplacementContent": "                            <span className=\"text-[9px] text-slate-400 font-bold uppercase tracking-wider block\">Total Amount</span>\n                            <span className=\"text-sm font-extrabold text-slate-800\">₦{(booking.totalAmount || 0).toLocaleString('en-NG')}</span>\n                          </div>",
+      "StartLine": 867,
+      "TargetContent": "                            <span className=\"text-[9px] text-slate-400 font-bold uppercase tracking-wider block\">Total Amount</span>\n                            <span className=\"text-sm font-extrabold text-slate-800\">₦{booking.totalAmount.toLocaleString('en-NG')}</span>\n                          </div>",
+      "TargetFile": "c:\\Users\\HP\\Documents\\CODING\\Hotel-PMS-CRM\\components\\ClientPortal.tsx"
+    }
+  },
+  {
+    "name": "replace_file_content",
+    "args": {
+      "AllowMultiple": false,
+      "Description": "Restore deleted lines from ClientPortal.tsx",
+      "EndLine": 866,
+      "Instruction": "Replace corrupted section with original + the fix",
+      "ReplacementContent": "                            {booking.notes && (\n                              <p className=\"text-[10px] text-slate-400 italic bg-white/70 px-2 py-1 rounded border border-slate-100 inline-block\">\n                                &quot;{booking.notes}&quot;\n                              </p>\n                            )}\n                          </div>\n                        </div>\n\n                        <div className=\"flex items-center justify-between md:justify-end gap-6 border-t md:border-none pt-3 md:pt-0 border-slate-100\">\n                          <div className=\"text-left md:text-right\">\n                            <span className=\"text-[9px] text-slate-400 font-bold uppercase tracking-wider block\">Total Amount</span>\n                            <span className=\"text-sm font-extrabold text-slate-800\">₦{(booking.totalAmount || 0).toLocaleString('en-NG')}</span>\n                          </div>\n\n                          <div className=\"flex flex-col gap-2\">\n                            {(!booking.paymentStatus || booking.paymentStatus === \"pending\") && booking.status !== \"cancelled\" && (\n                              <button\n                                onClick={() => { setSelectedBookingForPayment(booking); setShowPaymentModal(true); }}\n                                className=\"px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold uppercase tracking-wider rounded-lg transition-colors shadow-sm\"\n                              >\n                                Pay Now\n                              </button>\n                            )}",
+      "StartLine": 857,
+      "TargetContent": "                            {booking.notes && (\n                              <p className=\"text-[10px] text-slate-400 italic bg-white/70 px-2 py-1 rounded border border-slate-100 inline-block\">\n                                &quot;{booking.notes}&quot;\n                              </p>\n                            )}\n                                className=\"px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold uppercase tracking-wider rounded-lg transition-colors shadow-sm\"\n                              >\n                                Pay Now\n                              </button>\n                            )}",
+      "TargetFile": "c:\\Users\\HP\\Documents\\CODING\\Hotel-PMS-CRM\\components\\ClientPortal.tsx"
+    }
+  }
+]

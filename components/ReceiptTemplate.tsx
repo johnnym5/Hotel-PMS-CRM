@@ -2,11 +2,39 @@
 
 import React from "react";
 
-export function getReceiptHTML(guestName: string, roomNumber: string, checkIn: string, checkOut: string, amount: number) {
-  const tax = amount * 0.1;
+interface Incidental {
+  id: string;
+  description: string;
+  amount: number;
+  date: string;
+}
+
+export function getReceiptHTML(
+  guestName: string,
+  roomNumber: string,
+  checkIn: string,
+  checkOut: string,
+  amount: number,
+  incidentals?: Incidental[]
+) {
+  const incidentalTotal = incidentals
+    ? incidentals.reduce((sum, inc) => sum + inc.amount, 0)
+    : 0;
+  const baseAmount = amount - incidentalTotal; // base room rate is totalAmount minus incidentals
+  const subtotal = amount;
+  const tax = subtotal * 0.1;
   const fees = 25;
-  const total = amount + tax + fees;
-  
+  const total = subtotal + tax + fees;
+
+  const incidentalRows = incidentals && incidentals.length > 0
+    ? incidentals.map(inc => `
+        <tr>
+          <td>${inc.description} <span style="color:#9ca3af;font-size:11px;">(${inc.date})</span></td>
+          <td class="amount">₦${inc.amount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+        </tr>
+      `).join("")
+    : "";
+
   return `
     <html>
       <head>
@@ -23,6 +51,7 @@ export function getReceiptHTML(guestName: string, roomNumber: string, checkIn: s
           .table th { text-align: left; padding: 12px; background: #f3f4f6; color: #374151; font-weight: bold; border-bottom: 2px solid #e5e7eb; }
           .table td { padding: 12px; border-bottom: 1px solid #e5e7eb; color: #4b5563; }
           .table .amount { text-align: right; }
+          .table .section-header { background: #faf5ff; font-weight: 600; color: #7c3aed; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
           .totals { width: 50%; margin-left: auto; }
           .total-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eee; }
           .total-row.grand-total { font-weight: bold; font-size: 18px; border-bottom: none; border-top: 2px solid #333; margin-top: 10px; padding-top: 20px; color: #111; }
@@ -58,8 +87,14 @@ export function getReceiptHTML(guestName: string, roomNumber: string, checkIn: s
           <tbody>
             <tr>
               <td>Room Rate (Base)</td>
-              <td class="amount">₦${amount.toLocaleString('en-NG', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+              <td class="amount">₦${baseAmount.toLocaleString('en-NG', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
             </tr>
+            ${incidentalRows ? `
+            <tr>
+              <td class="section-header" colspan="2">Incidentals / Extra Charges</td>
+            </tr>
+            ${incidentalRows}
+            ` : ""}
             <tr>
               <td>Taxes (10%)</td>
               <td class="amount">₦${tax.toLocaleString('en-NG', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
