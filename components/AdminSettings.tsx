@@ -113,7 +113,7 @@ export default function AdminSettings() {
                 />
               </div>
               <div className="flex-1">
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Nightly Rate ($)</label>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Nightly Rate (₦)</label>
                 <input
                   type="number"
                   value={newRoomRate}

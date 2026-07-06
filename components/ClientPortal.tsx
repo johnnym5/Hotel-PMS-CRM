@@ -52,25 +52,24 @@ interface GuestProfileData {
 
 interface ClientPortalProps {
   user: any;
-  onSignOut: () => void;
+  activeTab: "book" | "bookings" | "profile";
 }
 
 const ROOMS = ["101", "102", "103", "104", "105", "201", "202", "203", "204", "205"];
 const ROOM_PRICES: Record<string, number> = {
-  "101": 120,
-  "102": 125,
-  "103": 130,
-  "104": 135,
-  "105": 140,
-  "201": 160,
-  "202": 165,
-  "203": 170,
-  "204": 175,
-  "205": 185,
+  "101": 19800,
+  "102": 20625,
+  "103": 21450,
+  "104": 22275,
+  "105": 23100,
+  "201": 26400,
+  "202": 27225,
+  "203": 28050,
+  "204": 28875,
+  "205": 30525,
 };
 
-export default function ClientPortal({ user, onSignOut }: ClientPortalProps) {
-  const [activeTab, setActiveTab] = useState<"book" | "bookings" | "profile">("book");
+export default function ClientPortal({ user, activeTab }: ClientPortalProps) {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [guestProfile, setGuestProfile] = useState<GuestProfileData>({
     name: user.displayName || user.email?.split("@")[0] || "Valued Guest",
@@ -346,10 +345,9 @@ export default function ClientPortal({ user, onSignOut }: ClientPortalProps) {
         setSpecialNotes("");
         setActionSuccess(`Room ${roomNumber} successfully reserved for ${nights} nights!`);
         
-        // Auto-transition to Bookings List
+        // Auto-transition is handled by parent now
         setTimeout(() => {
           setActionSuccess(null);
-          setActiveTab("bookings");
         }, 1500);
         return;
       }
@@ -389,10 +387,9 @@ export default function ClientPortal({ user, onSignOut }: ClientPortalProps) {
       setSpecialNotes("");
       setActionSuccess(`Room ${roomNumber} successfully reserved for ${nights} nights!`);
       
-      // Auto-transition to Bookings List
+      // Auto-transition is handled by parent now
       setTimeout(() => {
         setActionSuccess(null);
-        setActiveTab("bookings");
       }, 1500);
 
     } catch (err: any) {
@@ -434,41 +431,6 @@ export default function ClientPortal({ user, onSignOut }: ClientPortalProps) {
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50" id="client-portal-root">
-      {/* Premium Header */}
-      <header className="bg-white border-b border-slate-100 px-6 py-4 sticky top-0 z-40">
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-indigo-600 text-white rounded-lg flex items-center justify-center font-bold text-sm shadow-sm">
-              <Compass className="w-4 h-4" />
-            </div>
-            <div>
-              <h1 className="text-sm font-bold tracking-tight text-slate-900 leading-none">Innsphere</h1>
-              <p className="text-[10px] text-slate-500 mt-0.5 font-medium">Boutique Getaway Portal</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <div className="text-right hidden sm:block">
-                <p className="text-xs font-bold text-slate-800 leading-none">{guestProfile.name}</p>
-                <p className="text-[9px] text-indigo-600 font-medium mt-0.5 bg-indigo-50 px-1.5 py-0.5 rounded-full inline-block">Registered Guest</p>
-              </div>
-              <div className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-xs uppercase border border-indigo-100">
-                {guestProfile.name.charAt(0)}
-              </div>
-            </div>
-            <button
-              onClick={onSignOut}
-              className="p-2 hover:bg-slate-100 text-slate-500 hover:text-slate-800 rounded-lg transition-colors"
-              title="Sign Out"
-              id="client-sign-out"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      </header>
-
       {/* Main Grid */}
       <main className="flex-1 p-6 max-w-5xl w-full mx-auto space-y-6">
         
@@ -492,78 +454,6 @@ export default function ClientPortal({ user, onSignOut }: ClientPortalProps) {
         {/* Action feedback */}
         <AnimatePresence mode="wait">
           {actionError && (
-            <motion.div 
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="p-4 bg-red-50 border border-red-100 text-red-700 rounded-2xl flex items-center gap-3 text-xs font-semibold"
-              id="client-action-error"
-            >
-              <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
-              <span>{actionError}</span>
-            </motion.div>
-          )}
-
-          {actionSuccess && (
-            <motion.div 
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="p-4 bg-emerald-50 border border-emerald-100 text-emerald-800 rounded-2xl flex items-center gap-3 text-xs font-semibold"
-              id="client-action-success"
-            >
-              <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-              <span>{actionSuccess}</span>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Tab Navigation */}
-        <div className="flex bg-white p-1 rounded-2xl border border-slate-100 shadow-sm max-w-md">
-          <button
-            onClick={() => { setActiveTab("book"); setActionError(null); }}
-            className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
-              activeTab === "book" 
-                ? "bg-indigo-600 text-white shadow-md shadow-indigo-100" 
-                : "text-slate-500 hover:text-slate-800 hover:bg-slate-50/50"
-            }`}
-            id="tab-book"
-          >
-            <CalendarIcon className="w-3.5 h-3.5" />
-            Reserve Room
-          </button>
-          <button
-            onClick={() => { setActiveTab("bookings"); setActionError(null); }}
-            className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 relative ${
-              activeTab === "bookings" 
-                ? "bg-indigo-600 text-white shadow-md shadow-indigo-100" 
-                : "text-slate-500 hover:text-slate-800 hover:bg-slate-50/50"
-            }`}
-            id="tab-bookings"
-          >
-            <History className="w-3.5 h-3.5" />
-            My Bookings
-            {bookings.length > 0 && (
-              <span className="absolute -top-1 -right-1 w-5 h-5 bg-indigo-500 text-white text-[10px] font-extrabold rounded-full flex items-center justify-center border-2 border-slate-50 animate-pulse">
-                {bookings.length}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => { setActiveTab("profile"); setActionError(null); }}
-            className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
-              activeTab === "profile" 
-                ? "bg-indigo-600 text-white shadow-md shadow-indigo-100" 
-                : "text-slate-500 hover:text-slate-800 hover:bg-slate-50/50"
-            }`}
-            id="tab-profile"
-          >
-            <User className="w-3.5 h-3.5" />
-            Preferences
-          </button>
-        </div>
-
-        {/* Tab Contents */}
         <div className="bg-white border border-slate-100 rounded-3xl p-6 sm:p-8 shadow-sm">
           
           {/* TAB 1: BOOK ROOM */}
@@ -660,7 +550,7 @@ export default function ClientPortal({ user, onSignOut }: ClientPortalProps) {
                       <div className="space-y-3 text-xs">
                         <div className="flex justify-between py-1.5 border-b border-dashed border-slate-200">
                           <span className="text-slate-400">Room {roomNumber} Suite Rate</span>
-                          <span className="font-bold text-slate-700">${pricePerNight} / night</span>
+                          <span className="font-bold text-slate-700">₦{pricePerNight.toLocaleString('en-NG')} / night</span>
                         </div>
                         <div className="flex justify-between py-1.5 border-b border-dashed border-slate-200">
                           <span className="text-slate-400">Duration of Getaway</span>
@@ -668,11 +558,11 @@ export default function ClientPortal({ user, onSignOut }: ClientPortalProps) {
                         </div>
                         <div className="flex justify-between py-1.5 border-b border-dashed border-slate-200">
                           <span className="text-slate-400">Boutique Tourism Tax (10%)</span>
-                          <span className="font-bold text-slate-700">${Math.round(calculatedTotal * 0.1)}</span>
+                          <span className="font-bold text-slate-700">₦{Math.round(calculatedTotal * 0.1).toLocaleString('en-NG')}</span>
                         </div>
                         <div className="flex justify-between pt-4 text-sm font-bold text-slate-800">
                           <span className="text-indigo-600">Total Charged</span>
-                          <span className="text-lg font-extrabold text-indigo-600">${calculatedTotal + Math.round(calculatedTotal * 0.1)}</span>
+                          <span className="text-lg font-extrabold text-indigo-600">₦{(calculatedTotal + Math.round(calculatedTotal * 0.1)).toLocaleString('en-NG')}</span>
                         </div>
                       </div>
                     ) : (
@@ -777,7 +667,7 @@ export default function ClientPortal({ user, onSignOut }: ClientPortalProps) {
                         <div className="flex items-center justify-between md:justify-end gap-6 border-t md:border-none pt-3 md:pt-0 border-slate-100">
                           <div className="text-left md:text-right">
                             <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Total Paid</span>
-                            <span className="text-sm font-extrabold text-slate-800">${booking.totalAmount}</span>
+                            <span className="text-sm font-extrabold text-slate-800">₦{booking.totalAmount.toLocaleString('en-NG')}</span>
                           </div>
 
                           {booking.status === "confirmed" && (

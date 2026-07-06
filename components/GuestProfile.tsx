@@ -594,7 +594,7 @@ export default function GuestProfile({ guestId, onClose }: GuestProfileProps) {
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] uppercase font-bold text-slate-500 mb-1">Total Amount ($)</label>
+                    <label className="block text-[10px] uppercase font-bold text-slate-500 mb-1">Total Amount (₦)</label>
                     <input
                       type="number"
                       value={totalAmount}
@@ -692,7 +692,7 @@ export default function GuestProfile({ guestId, onClose }: GuestProfileProps) {
                         {booking.checkIn} to {booking.checkOut}
                       </span>
                       {booking.totalAmount > 0 && (
-                        <span className="font-semibold text-indigo-600 text-[11px]">${booking.totalAmount} Total</span>
+                        <span className="font-semibold text-indigo-600 text-[11px]">₦{booking.totalAmount.toLocaleString('en-NG')} Total</span>
                       )}
                     </div>
                     {booking.notes && (

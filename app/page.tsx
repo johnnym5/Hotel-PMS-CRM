@@ -29,6 +29,8 @@ import CalendarTimeline from "../components/CalendarTimeline";
 import ClientPortal from "../components/ClientPortal";
 import HousekeepingBoard from "../components/HousekeepingBoard";
 import AdminSettings from "../components/AdminSettings";
+import Sidebar from "../components/Sidebar";
+import AdminCenter from "../components/AdminCenter";
 import { 
   LogIn, 
   LogOut, 
@@ -95,7 +97,7 @@ const ensureLocalSeedData = (staffUid: string) => {
         checkIn: "2026-07-05",
         checkOut: "2026-07-08",
         status: "checked_in",
-        totalAmount: 360,
+        totalAmount: 594000,
         notes: "VIP check-in",
         ownerId: staffUid
       },
@@ -107,7 +109,7 @@ const ensureLocalSeedData = (staffUid: string) => {
         checkIn: "2026-07-06",
         checkOut: "2026-07-11",
         status: "confirmed",
-        totalAmount: 825,
+        totalAmount: 1361250,
         notes: "Late arrival",
         ownerId: staffUid
       },
@@ -119,7 +121,7 @@ const ensureLocalSeedData = (staffUid: string) => {
         checkIn: "2026-07-05",
         checkOut: "2026-07-15",
         status: "checked_in",
-        totalAmount: 1400,
+        totalAmount: 2310000,
         notes: "Brings own scrolls",
         ownerId: staffUid
       }
@@ -130,7 +132,8 @@ const ensureLocalSeedData = (staffUid: string) => {
 
 export default function Home() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
-  const [userRole, setUserRole] = useState<"staff" | "client" | null>(null);
+  const [userRole, setUserRole] = useState<"staff" | "client" | "admin" | null>(null);
+  const [activeView, setActiveView] = useState<string>("");
   const [authLoading, setAuthLoading] = useState(true);
   const [checkingRole, setCheckingRole] = useState(false);
   const [selectedGuestId, setSelectedGuestId] = useState<string | null>(null);
@@ -193,29 +196,48 @@ export default function Home() {
       if (currentUser) {
         setCheckingRole(true);
         try {
-          const userDocRef = doc(db, "users", currentUser.uid);
-          const userDocSnap = await getDoc(userDocRef);
+          let finalRole: "staff" | "client" | "admin" = "client";
           
-          if (userDocSnap.exists()) {
-            setUserRole(userDocSnap.data().role as "staff" | "client");
+          // CRITICAL ADMIN LOGIC: Check if email is admin email
+          if (currentUser.email === "jegbase@gmail.com") {
+            finalRole = "admin";
+            setActiveView("admin_dashboard");
           } else {
-            const defaultRole = "client";
-            await setDoc(userDocRef, {
-              uid: currentUser.uid,
-              email: currentUser.email || "anonymous@innsphere.com",
-              role: defaultRole,
-              createdAt: serverTimestamp()
-            });
-            setUserRole(defaultRole);
+            // Fetch from database
+            const userDocRef = doc(db, "users", currentUser.uid);
+            const userDocSnap = await getDoc(userDocRef);
+            
+            if (userDocSnap.exists()) {
+              finalRole = userDocSnap.data().role as "staff" | "client" | "admin";
+            } else {
+              finalRole = "client";
+              await setDoc(userDocRef, {
+                uid: currentUser.uid,
+                email: currentUser.email || "anonymous@innsphere.com",
+                role: finalRole,
+                createdAt: serverTimestamp()
+              });
+            }
+            
+            // Set activeView based on role
+            if (finalRole === "staff") {
+              setActiveView("cockpit");
+            } else if (finalRole === "client") {
+              setActiveView("book");
+            }
           }
+          
+          setUserRole(finalRole);
         } catch (err) {
           console.error("Error fetching user role:", err);
           setUserRole("client"); // Safe fallback
+          setActiveView("book");
         } finally {
           setCheckingRole(false);
         }
       } else {
         setUserRole(null);
+        setActiveView("");
         setCheckingRole(false);
       }
       setAuthLoading(false);
@@ -355,17 +377,34 @@ export default function Home() {
       // Check if user has role in db. If not, write as client by default
       const userDocRef = doc(db, "users", result.user.uid);
       const userDocSnap = await getDoc(userDocRef);
-      if (!userDocSnap.exists()) {
-        await setDoc(userDocRef, {
-          uid: result.user.uid,
-          email: result.user.email || "",
-          role: "client",
-          createdAt: serverTimestamp()
-        });
-        setUserRole("client");
+      
+      let finalRole: "staff" | "client" | "admin" = "client";
+      
+      // CRITICAL ADMIN LOGIC: Check if email is admin email
+      if (result.user.email === "jegbase@gmail.com") {
+        finalRole = "admin";
+        setActiveView("admin_dashboard");
       } else {
-        setUserRole(userDocSnap.data().role as "staff" | "client");
+        if (!userDocSnap.exists()) {
+          await setDoc(userDocRef, {
+            uid: result.user.uid,
+            email: result.user.email || "",
+            role: "client",
+            createdAt: serverTimestamp()
+          });
+        } else {
+          finalRole = userDocSnap.data().role as "staff" | "client" | "admin";
+        }
+        
+        // Set activeView based on role
+        if (finalRole === "staff") {
+          setActiveView("cockpit");
+        } else if (finalRole === "client") {
+          setActiveView("book");
+        }
       }
+      
+      setUserRole(finalRole);
     } catch (err: any) {
       console.error(err);
       if (err.code === "auth/network-request-failed") {
@@ -418,17 +457,31 @@ export default function Home() {
           await updateProfile(result.user, { displayName: fullName });
         }
 
+        // CRITICAL ADMIN LOGIC: Check if email and password match admin credentials
+        let finalRole: "staff" | "client" | "admin" = authRole as "staff" | "client";
+        if (email === "jegbase@gmail.com" && password === "Admins") {
+          finalRole = "admin";
+          setActiveView("admin_dashboard");
+        } else {
+          // Set activeView based on role
+          if (finalRole === "staff") {
+            setActiveView("cockpit");
+          } else if (finalRole === "client") {
+            setActiveView("book");
+          }
+        }
+
         // Save User Role to Database BEFORE triggering Auth observer
         const userDocRef = doc(db, "users", result.user.uid);
         await setDoc(userDocRef, {
           uid: result.user.uid,
           email: email,
-          role: authRole,
+          role: finalRole,
           createdAt: serverTimestamp()
         });
 
         // If client, auto-create a Guest document with ID = result.user.uid so booking rules pass
-        if (authRole === "client") {
+        if (finalRole === "client") {
           const guestDocRef = doc(db, "guests", result.user.uid);
           await setDoc(guestDocRef, {
             name: fullName || email.split("@")[0],
@@ -441,7 +494,7 @@ export default function Home() {
           });
         }
 
-        setUserRole(authRole);
+        setUserRole(finalRole);
       } else {
         // Log In existing user
         await signInWithEmailAndPassword(auth, email, password);
@@ -478,6 +531,13 @@ export default function Home() {
       // Seed local storage with default demo data if first load
       ensureLocalSeedData(sandboxUid);
 
+      // Set activeView based on role
+      if (role === "staff") {
+        setActiveView("cockpit");
+      } else if (role === "client") {
+        setActiveView("book");
+      }
+
       // Set user structure that mocks FirebaseUser
       setUser({
         uid: sandboxUid,
@@ -502,6 +562,7 @@ export default function Home() {
     signOut(auth);
     setUser(null);
     setUserRole(null);
+    setActiveView("");
   };
 
   if (authLoading || checkingRole) {
@@ -745,194 +806,196 @@ export default function Home() {
     );
   }
 
-  // --- CLIENT GUEST PORTAL PORTAL ---
-  if (userRole === "client") {
-    return <ClientPortal user={user} onSignOut={handleSignOut} />;
-  }
-
-  // --- STAFF COCKPIT DASHBOARD PORTAL ---
+  // --- UNIFIED AUTHENTICATED LAYOUT WITH SIDEBAR AND ROLE-BASED VIEWS ---
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50" id="crm-dashboard-root">
-      {/* Top Navigation */}
-      <header className="bg-white border-b border-slate-100 px-6 py-4 sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-indigo-600 text-white rounded-lg flex items-center justify-center font-bold text-sm shadow-sm">
-              <Compass className="w-4 h-4" />
-            </div>
-            <div>
-              <h1 className="text-sm font-bold tracking-tight text-slate-900 leading-none">Innsphere</h1>
-              <p className="text-[10px] text-slate-500 mt-0.5 font-medium">Boutique Inn Portal</p>
-            </div>
-          </div>
+    <div className="flex h-screen bg-slate-50 overflow-hidden">
+      {/* Sidebar Navigation */}
+      <Sidebar 
+        role={userRole}
+        userName={user?.displayName || user?.email?.split("@")[0] || "User"}
+        activeView={activeView}
+        setActiveView={setActiveView}
+        onSignOut={handleSignOut}
+      />
 
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <div className="text-right hidden sm:block">
-                <p className="text-xs font-bold text-slate-800 leading-none">{user.displayName || "Innkeeper"}</p>
-                <p className="text-[9px] text-indigo-600 font-medium mt-0.5 bg-indigo-50 px-1.5 py-0.5 rounded-full inline-block">Staff Operator</p>
-              </div>
-              {user.photoURL ? (
-                <img
-                  src={user.photoURL}
-                  alt={user.displayName || "Avatar"}
-                  className="w-8 h-8 rounded-full border border-slate-200"
-                />
-              ) : (
-                <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 font-bold text-xs uppercase">
-                  {user.email?.charAt(0)}
-                </div>
-              )}
-            </div>
-            <button
-              onClick={handleSignOut}
-              className="p-2 hover:bg-slate-100 text-slate-500 hover:text-slate-800 rounded-lg transition-colors"
-              title="Sign Out"
-              id="btn-sign-out"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      </header>
+      {/* Main Content Area */}
+      <main className="flex-1 overflow-y-auto">
+        {/* Admin Dashboard View */}
+        {userRole === "admin" && activeView === "admin_dashboard" && (
+          <AdminCenter />
+        )}
 
-      {/* Main Container */}
-      <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-6">
-        
-        {/* Dashboard Metrics Bar */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4" id="metrics-dashboard-bar">
-          
-          <div className="bg-white border border-slate-100 rounded-2xl p-4 flex items-center gap-4 shadow-sm">
-            <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
-              <Calendar className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Total Bookings</p>
-              <h3 className="text-lg font-bold text-slate-800 mt-0.5">{totalBookingsCount}</h3>
-            </div>
-          </div>
-
-          <div className="bg-white border border-slate-100 rounded-2xl p-4 flex items-center gap-4 shadow-sm">
-            <div className="p-3 bg-amber-50 text-amber-600 rounded-xl">
-              <Users className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Active Guests</p>
-              <h3 className="text-lg font-bold text-slate-800 mt-0.5">{activeGuestsCount}</h3>
-            </div>
-          </div>
-
-          <div className="bg-white border border-slate-100 rounded-2xl p-4 flex items-center gap-4 shadow-sm">
-            <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl">
-              <BedDouble className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Lanes Occupancy</p>
-              <h3 className="text-lg font-bold text-slate-800 mt-0.5">{roomOccupancyRate}%</h3>
-            </div>
-          </div>
-
-          <div className="bg-white border border-slate-100 rounded-2xl p-4 flex items-center gap-4 shadow-sm">
-            <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl">
-              <DollarSign className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Log Revenue</p>
-              <h3 className="text-lg font-bold text-slate-800 mt-0.5">${projectedRevenue}</h3>
-            </div>
-          </div>
-
-        </div>
-
-        {/* Dashboard Tabs */}
-        <div className="flex items-center gap-2 border-b border-slate-200 pb-px">
-          <button
-            onClick={() => setActiveTab("frontdesk")}
-            className={`px-4 py-2 text-sm font-bold capitalize transition-colors border-b-2 ${activeTab === "frontdesk" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700"}`}
-          >
-            Front Desk
-          </button>
-          <button
-            onClick={() => setActiveTab("housekeeping")}
-            className={`px-4 py-2 text-sm font-bold capitalize transition-colors border-b-2 ${activeTab === "housekeeping" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700"}`}
-          >
-            Housekeeping
-          </button>
-          <button
-            onClick={() => setActiveTab("settings")}
-            className={`px-4 py-2 text-sm font-bold capitalize transition-colors border-b-2 ${activeTab === "settings" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700"}`}
-          >
-            Admin Settings
-          </button>
-        </div>
-
-        {/* Tab Content */}
-        {activeTab === "frontdesk" && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+        {/* Staff Cockpit Dashboard View */}
+        {userRole === "staff" && activeView === "cockpit" && (
+          <div className="p-6 max-w-7xl w-full mx-auto space-y-6">
             
-            {/* Left Column: Guest Registry */}
-          <div className="lg:col-span-1 h-[600px]">
+            {/* Dashboard Metrics Bar */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4" id="metrics-dashboard-bar">
+              
+              <div className="bg-white border border-slate-100 rounded-2xl p-4 flex items-center gap-4 shadow-sm">
+                <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
+                  <Calendar className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Total Bookings</p>
+                  <h3 className="text-lg font-bold text-slate-800 mt-0.5">{totalBookingsCount}</h3>
+                </div>
+              </div>
+
+              <div className="bg-white border border-slate-100 rounded-2xl p-4 flex items-center gap-4 shadow-sm">
+                <div className="p-3 bg-amber-50 text-amber-600 rounded-xl">
+                  <Users className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Active Guests</p>
+                  <h3 className="text-lg font-bold text-slate-800 mt-0.5">{activeGuestsCount}</h3>
+                </div>
+              </div>
+
+              <div className="bg-white border border-slate-100 rounded-2xl p-4 flex items-center gap-4 shadow-sm">
+                <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl">
+                  <BedDouble className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Lanes Occupancy</p>
+                  <h3 className="text-lg font-bold text-slate-800 mt-0.5">{roomOccupancyRate}%</h3>
+                </div>
+              </div>
+
+              <div className="bg-white border border-slate-100 rounded-2xl p-4 flex items-center gap-4 shadow-sm">
+                <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl">
+                  <DollarSign className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Log Revenue</p>
+                  <h3 className="text-lg font-bold text-slate-800 mt-0.5">${projectedRevenue}</h3>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Tabs for Front Desk */}
+            <div className="flex items-center gap-2 border-b border-slate-200 pb-px">
+              <button
+                onClick={() => setActiveTab("frontdesk")}
+                className={`px-4 py-2 text-sm font-bold capitalize transition-colors border-b-2 ${activeTab === "frontdesk" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+              >
+                Front Desk
+              </button>
+              <button
+                onClick={() => setActiveTab("housekeeping")}
+                className={`px-4 py-2 text-sm font-bold capitalize transition-colors border-b-2 ${activeTab === "housekeeping" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+              >
+                Housekeeping
+              </button>
+              <button
+                onClick={() => setActiveTab("settings")}
+                className={`px-4 py-2 text-sm font-bold capitalize transition-colors border-b-2 ${activeTab === "settings" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+              >
+                Admin Settings
+              </button>
+            </div>
+
+            {/* Tab Content */}
+            {activeTab === "frontdesk" && (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+                
+                {/* Left Column: Guest Registry */}
+              <div className="lg:col-span-1 h-[600px]">
+                <GuestsList
+                  onSelectGuest={setSelectedGuestId}
+                  selectedGuestId={selectedGuestId}
+                />
+              </div>
+
+              {/* Right Columns: Calendar Timeline Scheduler or Guest Detailed File */}
+              <div className="lg:col-span-2 min-h-[600px]">
+                <AnimatePresence mode="wait">
+                  {selectedGuestId ? (
+                    <motion.div
+                      key="guest-profile"
+                      initial={{ opacity: 0, x: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, x: -10 }}
+                      className="h-full"
+                    >
+                      <GuestProfile
+                        guestId={selectedGuestId}
+                        onClose={() => setSelectedGuestId(null)}
+                      />
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="timeline"
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, x: 10 }}
+                      className="h-full"
+                    >
+                      <CalendarTimeline
+                        onSelectGuest={setSelectedGuestId}
+                      />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+            </div>
+            )}
+
+            {activeTab === "housekeeping" && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="w-full"
+              >
+                <HousekeepingBoard />
+              </motion.div>
+            )}
+
+            {activeTab === "settings" && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="w-full"
+              >
+                <AdminSettings />
+              </motion.div>
+            )}
+
+          </div>
+        )}
+
+        {/* Staff Registry View */}
+        {userRole === "staff" && activeView === "registry" && (
+          <div className="p-6 max-w-7xl w-full mx-auto">
             <GuestsList
               onSelectGuest={setSelectedGuestId}
               selectedGuestId={selectedGuestId}
             />
           </div>
+        )}
 
-          {/* Right Columns: Calendar Timeline Scheduler or Guest Detailed File */}
-          <div className="lg:col-span-2 min-h-[600px]">
-            <AnimatePresence mode="wait">
-              {selectedGuestId ? (
-                <motion.div
-                  key="guest-profile"
-                  initial={{ opacity: 0, x: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, x: -10 }}
-                  className="h-full"
-                >
-                  <GuestProfile
-                    guestId={selectedGuestId}
-                    onClose={() => setSelectedGuestId(null)}
-                  />
-                </motion.div>
-              ) : (
-                <motion.div
-                  key="timeline"
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, x: 10 }}
-                  className="h-full"
-                >
-                  <CalendarTimeline
-                    onSelectGuest={setSelectedGuestId}
-                  />
-                </motion.div>
-              )}
-            </AnimatePresence>
+        {/* Staff Timeline View */}
+        {userRole === "staff" && activeView === "timeline" && (
+          <div className="p-6 max-w-7xl w-full mx-auto">
+            <CalendarTimeline
+              onSelectGuest={setSelectedGuestId}
+            />
           </div>
-
-        </div>
         )}
 
-        {activeTab === "housekeeping" && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="w-full"
-          >
-            <HousekeepingBoard />
-          </motion.div>
+        {/* Client Portal Views */}
+        {userRole === "client" && (
+          <ClientPortal 
+            user={user} 
+            activeTab={
+              activeView === "book" ? "book" : 
+              activeView === "bookings" ? "bookings" : 
+              "profile"
+            }
+          />
         )}
-
-        {activeTab === "settings" && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="w-full"
-          >
-            <AdminSettings />
-          </motion.div>
-        )}
-
       </main>
 
       {/* Real-time Toast Notifications */}

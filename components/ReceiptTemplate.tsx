@@ -58,15 +58,15 @@ export function getReceiptHTML(guestName: string, roomNumber: string, checkIn: s
           <tbody>
             <tr>
               <td>Room Rate (Base)</td>
-              <td class="amount">$${amount.toFixed(2)}</td>
+              <td class="amount">₦${amount.toLocaleString('en-NG', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
             </tr>
             <tr>
               <td>Taxes (10%)</td>
-              <td class="amount">$${tax.toFixed(2)}</td>
+              <td class="amount">₦${tax.toLocaleString('en-NG', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
             </tr>
             <tr>
               <td>Resort Fees</td>
-              <td class="amount">$${fees.toFixed(2)}</td>
+              <td class="amount">₦${fees.toLocaleString('en-NG', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
             </tr>
           </tbody>
         </table>
@@ -74,7 +74,7 @@ export function getReceiptHTML(guestName: string, roomNumber: string, checkIn: s
         <div class="totals">
           <div class="total-row grand-total">
             <span>Total Paid</span>
-            <span>$${total.toFixed(2)}</span>
+            <span>₦${total.toLocaleString('en-NG', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
           </div>
         </div>
 
